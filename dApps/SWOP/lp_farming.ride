@@ -1,0 +1,170 @@
+{-# STDLIB_VERSION 6 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+# SWOP voting: keys and function | start
+let kActive = "active"
+let kActiveGlob = "active_all_contracts"
+let kCause = "shutdown_cause"
+let kLastPoolTokenInterest = "_pool_last_interest"
+let kUserLastInterest = "_user_last_interest"
+let kUserClaimAvailable = "_user_available_to_claim"
+let kUserShareTokensLocked = "_share_tokens_locked"
+let kShareTokensLocked = "_total_share_tokens_locked"
+let kOraclePool = "pool_"
+let kPoolAssetIds = "asset_ids"
+
+
+let kAdminPubKey1 = "admin_pub_1"
+let kAdminPubKey2 = "admin_pub_2"
+let kAdminPubKey3 = "admin_pub_3"
+let kFarmingAddr = "farming_address"
+let kMoneyBoxAddress = "money_box_address"
+
+let scaleValue = 100000000 # 10^8
+let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+  case string: String => string.fromBase58String()
+  case nothing => throw(key + "is empty")
+}
+let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
+let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
+let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
+let farmingAddr = Address(getBase58FromOracle(kFarmingAddr))
+let moneyBoxAddress = Address(getBase58FromOracle(kMoneyBoxAddress))
+let active = this.getBoolean(kActive).valueOrElse(true)
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
+func isPoolCall(caller:Address) = if oracle.getString(kOraclePool + caller.toString()).isDefined() then unit
+    else throw("Only pool can call this function")
+
+func isFarmingCall(caller:Address) = if caller == farmingAddr then unit
+    else throw("Only farming can call this function")
+
+func suspend(cause: String) = [
+  BooleanEntry(kActive, false),
+  StringEntry(kCause, cause)
+]
+
+func getUserShareTokensLocked(pool: String, userAddress:String) = {
+  farmingAddr.getInteger(pool + "_" + userAddress + kUserShareTokensLocked).valueOrElse(0)
+}
+
+func getTotalShareTokensLocked(pool: String) = {
+  farmingAddr.getInteger(pool + kShareTokensLocked).valueOrElse(0)
+}
+
+func getUserLastInterest(user:String, pool:String, assetId: String) = {
+  this.getInteger(user + "_" + pool + "_" + assetId + kUserLastInterest).valueOrElse(0)
+}
+
+func getPoolTokenLastInterest(pool:String, assetId: String) = {
+  this.getInteger(pool + "_" + assetId + kLastPoolTokenInterest).valueOrElse(0)
+}
+
+func getUserClaimAvailable(user:String, pool:String, assetId: String) = {
+  this.getInteger(user + "_" + pool + "_" + assetId + kUserClaimAvailable).valueOrElse(0)
+}
+
+func getStrAssetId(assetId: ByteVector|Unit) = match assetId {
+    case id: ByteVector => id.toBase58String()
+    case waves: Unit => "WAVES"
+}
+
+func calcClaimAmount(pool: String, assetId: String, user:String) = {
+  let lastInterest = getPoolTokenLastInterest(pool, assetId)
+  let userLastInterest = getUserLastInterest(user, pool, assetId)
+  let userShareTokensLocked = getUserShareTokensLocked(pool, user)
+  let userClaimAvailable = getUserClaimAvailable(user, pool, assetId)
+  let newUserClaimAvailable = fraction(userShareTokensLocked, lastInterest - userLastInterest, scaleValue)
+  (userClaimAvailable + newUserClaimAvailable, lastInterest)
+}
+
+func calcClaimAmountEvaluate(pool: String, user:String) = {
+  let poolAddr = Address(pool.fromBase58String())
+  let assetIds = poolAddr.getString(kPoolAssetIds).valueOrErrorMessage("Can't find pool assets").split(",")
+  func calcClaimAmounts(acc: List[Int], assetId: String) = {
+    let (claimAmount, lastInterest) = calcClaimAmount(pool, assetId, user)
+    acc :+ [claimAmount]
+  }
+  let claimAmounts = FOLD<15>(assetIds, [], calcClaimAmounts)
+  (assetIds, claimAmounts)
+}
+
+@Callable(i)
+func airDrop() = isActive().valueOrElse({isPoolCall(i.caller).valueOrElse({
+  let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
+  let pool = i.caller.toString()
+  let totalShareTokensLocked = getTotalShareTokensLocked(pool)
+  if(totalShareTokensLocked == 0) then
+    [ScriptTransfer(moneyBoxAddress, pmtAmount, pmtAssetId)]
+  else
+    let lastInterest = getPoolTokenLastInterest(pool, getStrAssetId(pmtAssetId))
+    let interestNew = lastInterest + if pmtAmount > 0 then
+      fraction(pmtAmount, scaleValue, totalShareTokensLocked)
+    else
+      0
+    [IntegerEntry(pool + "_" + pmtAssetId.getStrAssetId() + kLastPoolTokenInterest, interestNew)]
+})})
+
+@Callable(i)
+func updateUserInterest(user:String, pool: String, newUserShareTokensLocked: Int) = isActive().valueOrElse({isFarmingCall(i.caller).valueOrElse({
+    let poolAddr = Address(pool.fromBase58String())
+    let assetIds = poolAddr.getString(kPoolAssetIds).valueOrErrorMessage("Can't find pool assets").split(",")
+    func calcNewUserInterestAndClaimAmountEtries(acc: List[IntegerEntry], assetId: String) = {
+      let (claimAmount, lastInterest) = calcClaimAmount(pool, assetId, user)
+      acc ++ [
+        IntegerEntry(user + "_" + pool + "_" + assetId + kUserClaimAvailable, claimAmount),
+        IntegerEntry(user + "_" + pool + "_" + assetId + kUserLastInterest, lastInterest)
+      ]
+    }
+    FOLD<15>(assetIds, [], calcNewUserInterestAndClaimAmountEtries)
+})})
+
+@Callable(i)
+func claim(pool: String) = isActive().valueOrElse({
+    let poolAddr = Address(pool.fromBase58String())
+    let user = i.caller.toString()
+    let assetIds = poolAddr.getString(kPoolAssetIds).valueOrErrorMessage("Can't find pool assets").split(",")
+    func calcClaimAmountEntries(acc: (List[IntegerEntry|ScriptTransfer], Int), assetId: String) = {
+      let (entries, sum) = acc
+      let (claimAmount, lastInterest) = calcClaimAmount(pool, assetId, user)
+      (entries ++ [
+        ScriptTransfer(i.caller, claimAmount, assetId.fromBase58String()),
+        IntegerEntry(user + "_" + pool + "_" + assetId + kUserClaimAvailable, 0),
+        IntegerEntry(user + "_" + pool + "_" + assetId + kUserLastInterest, lastInterest)
+      ], sum + claimAmount)
+    }
+    let (claimEntries, sumTokens) = FOLD<15>(assetIds, ([], 0), calcClaimAmountEntries)
+    if sumTokens == 0 then throw("You have no tokens for claim") else
+    claimEntries
+})
+
+@Callable(i)
+func shutdown() =
+    if !active then
+        throw("DApp is already suspended. Cause: " + this.getString(kCause).valueOrElse("the cause wasn't specified"))
+    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
+        throw("Only admin can call this function")
+    else
+        suspend("Paused by admin")
+
+@Callable(i)
+func activate() =
+    if active then
+        throw("DApp is already active")
+    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
+        throw("Only admin can call this function")
+    else [
+        BooleanEntry(kActive, true),
+        DeleteEntry(kCause)
+    ]
+
+@Verifier(tx)
+func verify() = {
+    let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
+    let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
+    let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
+    adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
+}

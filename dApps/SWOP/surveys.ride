@@ -1,4 +1,4 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 6 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
@@ -9,6 +9,7 @@ let kAdminInvokePubKey = "admin_invoke_pub"
 let kMoneyBoxAddress = "money_box_address"
 let kGovAddress = "governance_address"
 let kActive = "active"
+let kActiveGlob = "active_all_contracts"
 let kLastSurveyId = "last_survey_id"
 let kSurveyHeightCompletion = "_survey_height_completion"
 let kSurveyTitle = "_survey_title"
@@ -17,6 +18,7 @@ let kSurveyOptionName = "_survey_option_name"
 let kSurveyOptionType = "_survey_option_type"
 let kUserVote = "_survey_user_vote"
 let kTotalSwopVoted = "_survey_option_total_swop_voted"
+let kUserGSwopInGov = "_GSwop_amount"
 let kUserSwopInGov = "_SWOP_amount"
 
 let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
@@ -33,12 +35,9 @@ let adminPubKeyInvoke = getBase58FromOracle(kAdminInvokePubKey)
 let moneyBoxAddress = Address(getBase58FromOracle(kMoneyBoxAddress))
 let govAddress = Address(getBase58FromOracle(kGovAddress))
 let active = this.getBoolean(kActive).valueOrElse(true)
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
 
-func isActive() =
-  if active then
-    unit
-  else
-    throw("DApp is inactive at this moment")
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
 
 func isAdminCall(i:Invocation) =
   if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
@@ -111,7 +110,8 @@ func vote(surveyId: Int, option: Int) =
       throw("You can't vote twice")
     else if this.getInteger(surveyId.toString() + kSurveyHeightCompletion).value() < height then
       throw("Survey already end")
-    else if govAddress.getInteger(i.caller.toString() + kUserSwopInGov).valueOrElse(0) <= 0 then
+    else if govAddress.getInteger(i.caller.toString() + kUserGSwopInGov)
+        .valueOrElse(govAddress.getInteger(i.caller.toString() + kUserSwopInGov).valueOrElse(0)) <= 0 then
       throw("Stake swop in governance to survey")
     else
       [

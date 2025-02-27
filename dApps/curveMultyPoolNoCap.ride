@@ -1,0 +1,919 @@
+{-# STDLIB_VERSION 6 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+let PRECISION = 1000000
+let MAX_A = 1_000_000
+let MAX_A_CHANGE = 10
+let DECIMALS = 6
+let MIN_RAMP_TIME = 86400 / 60
+
+let version = "3.0.0"
+let kVersion = "version"
+let kAssets = "asset_ids"
+let kAssetBalance = "_balance"
+let kActive = "active"
+let kActiveGlob = "active_all_contracts"
+let kDeprecated = "deprecated_"
+let kCause = "shutdown_cause"
+let kShareAssetId = "share_asset_id"
+let kShareAssetSupply = "share_asset_supply"
+let kFee = "commission"
+let kDAppThresholdCoef = "dAppThresholdCoef"
+
+let kUSDNAddress = "staking_usdnnsbt_address"
+let kDiscounts = "discounts"
+let kDiscountValues = "discount_values"
+let kUserSwopInGov = "_SWOP_amount"
+let kUserGSwopInGov = "_GSwop_amount"
+let kAdminPubKey1 = "admin_pub_1"
+let kAdminPubKey2 = "admin_pub_2"
+let kAdminPubKey3 = "admin_pub_3"
+let kAdminInvokePubKey = "admin_invoke_pub"
+let kMoneyBoxAddress = "money_box_address"
+let kTeamBoxAddress = "team_box_address"
+let kGovAddress = "governance_address"
+let kVotingAddress = "voting_address"
+let kFarmingAddress = "farming_address"
+let kLPFarmingAddress = "lp_farming"
+
+
+let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
+
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+    case string: String => string.fromBase58String()
+    case nothing => throw(key + "is empty")
+}
+
+let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
+let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
+let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
+let adminPubKeyInvoke = getBase58FromOracle(kAdminInvokePubKey)
+
+let moneyBoxAddress = Address(getBase58FromOracle(kMoneyBoxAddress))
+let teamBoxAddress = Address(getBase58FromOracle(kTeamBoxAddress))
+let govAddress = Address(getBase58FromOracle(kGovAddress))
+let stakingUSDNAddress = Address(getBase58FromOracle(kUSDNAddress))
+let votingAddress = Address(getBase58FromOracle(kVotingAddress))
+let farmingAddress = Address(getBase58FromOracle(kFarmingAddress))
+let lpFarmingAddress = Address(getBase58FromOracle(kLPFarmingAddress))
+
+let USDN = base58'DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p'
+let stakingAssets = [USDN.toBase58String()]
+
+let active = this.getBooleanValue(kActive)
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+let deprecatedPool = oracle.getBoolean(kDeprecated + this.toString()).valueOrElse(false)
+let shareAssetId = this.getStringValue(kShareAssetId).fromBase58String()
+let shareSupply = this.getIntegerValue(kShareAssetSupply)
+let feeScale6 = 1000000
+let fee = this.getIntegerValue(kFee)
+let feeGovernance = fraction(35, feeScale6, 100)  #35% of fee send to the governance address
+let feeTeam = fraction(10, feeScale6, 100)  #10% of fee send to the team box address
+
+let initial_A = this.getIntegerValue("initial_A")
+let future_A = this.getIntegerValue("future_A")
+let initial_A_time = this.getInteger("initial_A_time").valueOrElse(0)
+let future_A_time = this.getInteger("future_A_time").valueOrElse(0)
+
+
+let assetIds = this.getStringValue(kAssets).split(",")
+let nCoins = assetIds.size()
+
+func suspend(cause: String) = [
+    BooleanEntry(kActive, false),
+    StringEntry(kCause, cause)
+]
+
+func throwIsActive() = throw("DApp is already active")
+
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
+
+func isDepricated() = if !deprecatedPool then unit else throw("Pool is deprecated. Only withdraw action allowed.")
+
+func isAdminCall(i:Invocation) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then unit
+        else throw("Only admin can call this function")
+
+func isSelfCall(i:Invocation) = if this == i.caller then unit else
+    throw("Only contract itself can call this function")
+
+# RIDE optimizations
+let big2 = 2.toBigInt()
+let iter10 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+let iter15 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+let iter16 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+let blockTimestamp = height
+
+func assert(a: Boolean) =
+{
+    if(a) then false else true
+}
+
+func calculateFeeDiscount(userAddr: Address|String) = {
+    let user = match (userAddr) {
+        case u:Address => u.toString()
+        case u:String => u
+        case _ =>  throw("Unknow type of user Addr")
+      }
+    let swopAmount = govAddress.getInteger(user + kUserGSwopInGov).valueOrElse(0)
+    let gSwopAmount = govAddress.getInteger(user + kUserGSwopInGov).valueOrElse(swopAmount)
+    let discountValues = oracle.getStringValue(kDiscountValues).split(",")
+    let discounts = oracle.getStringValue(kDiscounts).split(",")
+
+    if gSwopAmount >= parseIntValue(discountValues[0]) && gSwopAmount < parseIntValue(discountValues[1]) then
+        feeScale6 - parseIntValue(discounts[0])
+    else if gSwopAmount >= parseIntValue(discountValues[1]) && gSwopAmount < parseIntValue(discountValues[2]) then
+        feeScale6 - parseIntValue(discounts[1])
+    else if gSwopAmount >= parseIntValue(discountValues[2]) && gSwopAmount < parseIntValue(discountValues[3]) then
+        feeScale6 - parseIntValue(discounts[2])
+    else if gSwopAmount >= parseIntValue(discountValues[3]) && gSwopAmount < parseIntValue(discountValues[4]) then
+        feeScale6 - parseIntValue(discounts[3])
+    else if gSwopAmount >= parseIntValue(discountValues[4]) then
+        feeScale6 - parseIntValue(discounts[4])
+    else
+        feeScale6
+}
+
+func _A() =
+{
+    let t1 = future_A_time
+    let A1 = future_A
+
+    if(blockTimestamp < t1) then
+        let A0 = initial_A
+        let t0 = initial_A_time
+        if(A1 > A0) then
+            A0 + (A1 - A0) * (blockTimestamp - t0) / (t1 - t0)
+        else
+            A0 - (A0 - A1) * (blockTimestamp - t0) / (t1 - t0)
+    else
+        A1
+}
+
+func _xp() = {
+    func assetBalances(acc: List[Int], assetId:String) = acc :+ this.getInteger(assetId + kAssetBalance).valueOrElse(0)
+    FOLD<10>(assetIds, [], assetBalances)
+
+}
+
+func _xp_mem(xp: List[Int]) = xp
+
+
+func sumList(acc: Int, element:Int) = acc + element
+
+func get_D(xp: List[Int], amp: Int) = {
+    invoke(this, "D", [ xp, amp ], []).exactAs[Int]
+}
+
+#xp балансы
+func get_D_internal(xp:List[Int], amp: Int) = {
+    let S = FOLD<10>(xp, 0, sumList)
+    if(S == 0) then 0 else
+
+    let Ann = amp * nCoins
+    let AnnS = Ann.toBigInt() * S.toBigInt()
+    let Ann1 = (Ann - 1).toBigInt()
+
+    func Dproc(acc: (BigInt, Boolean), i: Int) = {
+        if(acc._2 == true) then acc else
+        let Dprev = acc._1
+        func D_PProc(D_P: BigInt, i:Int) = {
+            if(i < nCoins) then
+                D_P * Dprev / (xp[i].toBigInt() * nCoins.toBigInt())
+            else
+                D_P
+        }
+        let D_P = FOLD<10>(iter10, Dprev, D_PProc)
+        let D = fraction(AnnS + (nCoins.toBigInt() * D_P), Dprev, (Ann1 * Dprev) + ((nCoins + 1).toBigInt() * D_P)) # N_COINS
+        if D > Dprev
+            then if (D - Dprev).toInt() <= 1 then (D, true) else (D, false)
+            else if (Dprev - D).toInt() <= 1 then (D, true) else (D, false)
+    }
+
+    let (D, finished) = FOLD<15>(iter15, (S.toBigInt(), false), Dproc)
+    if(finished == false) then
+        throw("get_D() not finished with " + D.toString())
+    else
+        D.toInt()
+}
+
+func getDMem(xp:List[Int], amp: Int) = get_D(_xp_mem(xp), amp)
+
+
+func getY(in: Int, out: Int, x: Int, xp_: List[Int]) = {
+    if(assert(in != out)) then throw("same coin") else
+    if(assert(out >= 0 && in >= 0)) then throw("below zero") else
+    if(assert(out < nCoins && in < nCoins)) then throw("above N_COINS") else
+
+    let amp = _A()
+    let D = get_D(xp_, amp)
+    let Ann = amp * nCoins
+
+
+    func S_c(acc: (Int, BigInt), i: Int) = {
+        let (S_, c) = acc
+        let x_ = if(in == i) then x else xp_[i]
+        if(i != out && i < nCoins) then
+            (S_ + x_, fraction(c, D.toBigInt(), (x_ * nCoins).toBigInt()))
+        else
+            (S_, c)
+    }
+
+    let (S_, c_) = FOLD<10>(iter10, (0, D.toBigInt()), S_c)
+
+    let c = fraction(c_, D.toBigInt(), (Ann * nCoins).toBigInt())
+    let bD = (S_ + D / Ann - D).toBigInt()
+
+    func y_proc(acc: (BigInt, Boolean), _i: Int) = {
+        if(acc._2 == true) then acc else
+        let y_prev = acc._1
+        let y = (y_prev * y_prev + c) / (big2 * y_prev + bD)
+        if y > y_prev
+            then if (y - y_prev).toInt() <= 1 then (y, true) else (y, false)
+            else if (y_prev - y).toInt() <= 1 then (y, true) else (y, false)
+    }
+
+    let (y, finished) = FOLD<16>(iter16, (D.toBigInt(), false), y_proc)
+    if(finished == false) then
+        throw("getY() not finished with " + y.toString())
+    else
+        y.toInt()
+}
+
+func get_y_D(A_: Int, in: Int, xp: List[Int], D: Int) = {
+    if(assert(in >= 0)) then throw("i below zero") else
+    if(assert(in < nCoins)) then throw("i above N_COINS") else
+
+    let Ann = A_ * nCoins
+
+
+    func S_c(acc: (Int, BigInt), i: Int) = {
+        let (S_, c) = acc
+        let x_ = if(in != i && i < nCoins) then xp[i] else 0
+        if(i < nCoins && in != i) then
+            (S_ + x_, fraction(c, D.toBigInt(), (x_ * nCoins).toBigInt()))
+        else
+            (S_, c)
+    }
+
+    let (S_, c_) = FOLD<10>(iter10, (0, D.toBigInt()), S_c)
+
+    let c = fraction(c_, D.toBigInt(), (Ann * nCoins).toBigInt())
+    let bD = (S_ + D / Ann - D).toBigInt()
+
+    func y_D_proc(acc: (BigInt, Boolean), i: Int) = {
+        if(acc._2 == true) then acc else
+        let y_prev = acc._1
+        let y = (y_prev * y_prev + c) / (big2 * y_prev + bD)
+        if y > y_prev
+            then if (y - y_prev).toInt() <= 1 then (y, true) else (y, false)
+            else if (y_prev - y).toInt() <= 1 then (y, true) else (y, false)
+    }
+
+    let (y, finished) = FOLD<16>(iter16, (D.toBigInt(), false), y_D_proc)
+
+    if(finished == false) then
+        throw("get_y_D() not finished with " + y.toString())
+    else
+        y.toInt()
+}
+
+func _calcWithdrawOneCoin(xp: List[Int], _token_amount: Int, i: Int, caller: Address) = {
+    let feeDiscount = calculateFeeDiscount(caller)
+    let amp = _A()
+    let _fee = fee.fraction(feeDiscount, feeScale6, CEILING) * nCoins / (4 * (nCoins - 1))
+    let total_supply = shareSupply
+
+    let D0 = get_D(xp, amp)
+    let D1 = D0 - fraction(_token_amount, D0, total_supply)
+
+    let new_y = get_y_D(amp, i, xp, D1)
+    let dy_0 = xp[i] - new_y
+
+    func xp_reduced_proc(acc: (List[Int], Int), xp_j: Int) = {
+        let (xp_reduced, index) = acc
+        let dx_expected =
+            if(index == i) then
+                fraction(xp_j, D1, D0) - new_y
+            else
+                xp_j - fraction(xp_j, D1, D0)
+        (xp_reduced:+ (xp_j - fraction(_fee, dx_expected, feeScale6)), index + 1)
+    }
+
+    let (xp_reduced, index) = FOLD<10>(xp, ([], 0), xp_reduced_proc)
+    let xp_reduced_i = xp_reduced[i]
+    let dy = xp_reduced_i - get_y_D(amp, i, xp_reduced, D1) - 1
+    (dy, dy_0 - dy)
+}
+
+func getStrAssetId(assetId: ByteVector|Unit) = match assetId {
+    case id: ByteVector => id.toBase58String()
+    case waves: Unit => "WAVES"
+}
+
+func calcStakingFuncAndAddres(stake: Boolean, assetId: ByteVector) = {
+    if stake then
+        ("lockNeutrino", stakingUSDNAddress)
+    else
+       ("unlockNeutrino", stakingUSDNAddress)
+}
+
+func calcStakingParams(stake: Boolean, amount:Int, assetId: ByteVector) = {
+    if stake then
+        let (call, stakingAddr) = calcStakingFuncAndAddres(stake, assetId)
+        (call, stakingAddr, [], [AttachedPayment(assetId, amount)])
+    else
+        let (call, stakingAddr) = calcStakingFuncAndAddres(stake, assetId)
+        (call, stakingAddr, [amount, assetId.toBase58String()], [])
+}
+
+func stake(amount: Int, assetIdString:String) = {
+    if stakingAssets.containsElement(assetIdString) then
+        let (call, addr, params, payments) = calcStakingParams(true, amount, assetIdString.fromBase58String())
+        invoke(addr, call, params, payments)
+    else
+        0
+}
+
+func unstake(amount: Int, assetIdString:String) = {
+    if stakingAssets.containsElement(assetIdString) then
+        let (call, addr, params, payments) = calcStakingParams(false, amount, assetIdString.fromBase58String())
+        invoke(addr, call, params, payments)
+    else
+        0
+}
+
+func stakedAmount(assetId: ByteVector|Unit) = {
+    let stakedAmountCalculated = match assetId {
+        case aId: ByteVector =>
+          if aId == USDN  then {
+              stakingUSDNAddress.getInteger("rpd_balance_" + aId.toBase58String() + "_" + this.toString())
+          } else 0
+        case _:Unit => 0
+      }
+    match (stakedAmountCalculated) {
+        case i:Int => i
+        case _ => 0
+    }
+}
+
+func checkSuspicious() = {
+    let contractBalances = _xp()
+    func checkBalance(acc: (Boolean, Int), assetId: String) = {
+        let (suspicious, i) = acc
+        if suspicious then (suspicious, i) else
+        let aBalance = this.assetBalance(assetId.fromBase58String()) + stakedAmount(assetId.fromBase58String())
+        if aBalance < contractBalances[i] then
+            (true, i)
+        else
+            (false, i + 1)
+    }
+    FOLD<10>(assetIds, (false, 0), checkBalance)
+}
+
+func suspendSuspicious(i: Int) = {
+    suspend("Suspicious state with asset: " + assetIds[i])
+}
+
+func returnPayments(caller: Address, payments: List[AttachedPayment]) = {
+    func parsePayments(acc: List[ScriptTransfer], payment: AttachedPayment) = {
+        acc :+ ScriptTransfer(caller, payment.amount, payment.assetId)
+    }
+    FOLD<10>(payments, [], parsePayments)
+}
+
+func checkDAppThreshold(newBalances: List[Int]) = {
+    let dAppThresholdCoef = this.getInteger(kDAppThresholdCoef).valueOrErrorMessage("No dAppThresholdCoef key")
+    let thresholdScale = 10000
+    let maxBalance = max(newBalances)
+    let minBalance = min(newBalances)
+    let ratio = fraction(maxBalance, thresholdScale, minBalance)
+    if ratio > (dAppThresholdCoef * thresholdScale) then
+        throw("New balance in assets of the DApp is less than threshold")
+    else
+        false
+}
+
+func checkCoins(assetIds: String) = {
+    let coins = assetIds.split(",")
+    if (coins.size() > 10) then throw("To many coins, max coins size 10") else
+
+    func checkCoin(error: Boolean, assetId: String) = {
+        let asset = assetId.fromBase58String().valueOrErrorMessage("fromBase58String: " + assetId)
+        let decimals = asset.assetInfo().valueOrErrorMessage("assetInfo: " + assetId).decimals
+        if(decimals != DECIMALS) then throw("wrong decimals") else false
+    }
+    FOLD<10>(coins, false, checkCoin)
+}
+
+func calcWithdraw(msg: Invocation, minAmounts: List[Int], unlockAmount:Int) = {
+
+    let suspicious = checkSuspicious()
+    if suspicious._1 then  suspendSuspicious(suspicious._2) ++ returnPayments(msg.caller, msg.payments) else
+    let pmtAmount = if(size(msg.payments) > 0) then
+        if(size(msg.payments) != 1) then throw("size(payments) != 1") else
+        let pmtAssetId = msg.payments[0].assetId
+        if(shareAssetId != pmtAssetId) then throw("unknown payment token") else
+            msg.payments[0].amount
+        else
+            0
+    let withdrawAmount = pmtAmount + unlockAmount
+
+    func calcScriptActions(acc: (List[ScriptTransfer|IntegerEntry], Int), balance: Int) = {
+        let (scriptActions, i) = acc
+        let wAmount = fraction(balance, withdrawAmount, shareSupply)
+        if(assert(wAmount >= minAmounts[i])) then throw("Withdrawal resulted in fewer coins than expected") else
+        strict us = unstake(wAmount, assetIds[i])
+        (
+            scriptActions ++ [
+                IntegerEntry(assetIds[i] + kAssetBalance,  balance - wAmount),
+                ScriptTransfer(msg.caller, wAmount, assetIds[i].fromBase58String())
+            ],
+            i + 1
+       )
+    }
+    let (scriptActions, i) = FOLD<10>(_xp(), ([], 0), calcScriptActions)
+    scriptActions ++ [
+        Burn(shareAssetId, withdrawAmount),
+        IntegerEntry(kShareAssetSupply, shareSupply - withdrawAmount)
+    ]
+}
+
+func calcWithdrawOneCoinEntries(msg: Invocation, tokenOut: String, minAmount: Int, unlockAmount: Int) = {
+    let suspicious = checkSuspicious()
+    if suspicious._1 then  suspendSuspicious(suspicious._2) ++ returnPayments(msg.originCaller, msg.payments) else
+
+    let pmtAmount = if(size(msg.payments) > 0) then
+        let pmtAssetId = msg.payments[0].assetId
+        if(shareAssetId != pmtAssetId) then throw("unknown payment token") else
+            msg.payments[0].amount
+        else
+            0
+    let outIndex = assetIds.indexOf(tokenOut).valueOrErrorMessage("unknown token out")
+    let tokenOutB58 = tokenOut.fromBase58String()
+    let withdrawAmount = pmtAmount + unlockAmount
+
+    let xp = _xp()
+    let (dy, dy_fee) = _calcWithdrawOneCoin(xp, withdrawAmount, outIndex, msg.originCaller)
+    if(assert(dy >= minAmount)) then throw("Not enough coins removed") else
+
+    let governanceFees = fraction(dy_fee, feeGovernance, feeScale6)
+    let teamFees = fraction(dy_fee, feeTeam, feeScale6)
+    let dy_and_fee = dy + dy_fee
+    func makeNewBalances(acc: (List[Int], Int), tokenBalance: Int) = {
+        let (newBalances, i) = acc
+        if(i == outIndex) then
+            (newBalances:+ (tokenBalance - dy_and_fee), i + 1)
+        else
+            (newBalances:+ tokenBalance, i + 1)
+    }
+
+    let (newBalances, v) = FOLD<10>(xp, ([], 0), makeNewBalances)
+
+    if(checkDAppThreshold(newBalances)) then throw() else
+
+    strict us = unstake(dy_and_fee, tokenOut)
+    let lpFees = dy_fee - governanceFees - teamFees
+    strict airdrop = if lpFees > 0 then
+            invoke(lpFarmingAddress, "airDrop", [], [AttachedPayment(tokenOutB58, lpFees)])
+        else
+            0
+    [
+        ScriptTransfer(msg.originCaller, dy, tokenOutB58),
+        IntegerEntry(assetIds[outIndex] + kAssetBalance, xp[outIndex] - dy_and_fee),
+        Burn(shareAssetId, withdrawAmount),
+        ScriptTransfer(moneyBoxAddress, governanceFees, tokenOutB58),
+        ScriptTransfer(teamBoxAddress, teamFees, tokenOutB58),
+        IntegerEntry(kShareAssetSupply, shareSupply - withdrawAmount)
+    ]
+}
+
+@Callable(msg)
+func D(xp:List[Int], amp: Int) = {
+    let D = get_D_internal(xp, amp)
+    ([ IntegerEntry("D", D) ], D)
+}
+
+@Callable(msg)
+func init(assetIds: String, _A: Int, _dAppThresholdCoef: Int) = {
+    if(!this.isDataStorageUntouched()) then throw("Already initialized") else
+    if(_A <= 0) then throw("Amp must be must > 0") else
+    if(_dAppThresholdCoef <= 0) then throw("dApp Threshold Coef must be > 0") else
+    let shareName = "s_Multi_USD"
+    let shareDescription = "ShareToken of SwopFi protocol for MultiStable USD pool at address " + this.toString()
+    let issueToken = Issue(shareName, shareDescription, 0, 6, true)
+    let tokenId = calculateAssetId(issueToken)
+    if checkCoins(assetIds) then throw() else
+    [
+        StringEntry(kVersion, version),
+        StringEntry(kAssets, assetIds),
+        IntegerEntry("initial_A", _A),
+        IntegerEntry("future_A", _A),
+        IntegerEntry(kFee, oracle.getIntegerValue("base_fee_flat")),
+        StringEntry(kShareAssetId, tokenId.toBase58String()),
+        IntegerEntry(kShareAssetSupply, 0),
+        IntegerEntry(kDAppThresholdCoef, _dAppThresholdCoef),
+        BooleanEntry(kActive, true),
+        issueToken
+    ]
+}
+
+#payments must be sorted in initial asset_id sort
+
+@Callable(msg)
+func addLiquidity(minMintAmount: Int, stakeFarming: Boolean, lockType: Int) =
+isActive().valueOrElse({
+isDepricated().valueOrElse({
+    let amp = _A()
+    let xp = _xp()
+
+    let D0 = if(shareSupply == 0) then
+        0
+    else
+        getDMem(xp, amp)
+    let (payments, lockFee) = if lockType > 0 && msg.payments[msg.payments.size() - 1].assetId == unit then
+            (msg.payments.removeByIndex(msg.payments.size() - 1), [msg.payments[msg.payments.size() - 1]])
+        else
+            (msg.payments, [])
+    let paymentsSize = size(payments)
+
+    func validPayments(n:Int) = {
+        if(paymentsSize > nCoins) then throw("payments size > " + nCoins.toString()) else
+        if(paymentsSize < 1) then throw("payments size < 1") else
+        if(shareSupply == 0 && nCoins != paymentsSize) then throw("initial deposit requires all coins") else
+        func paymantValid(acc:Boolean, payment: AttachedPayment) = {
+            if(assetIds.containsElement(payment.assetId.getStrAssetId())) then true else throw("Invalid asset in payment")
+        }
+        FOLD<10>(payments, false, paymantValid)
+    }
+
+    if(!validPayments(paymentsSize)) then throw() else
+    let suspicious = checkSuspicious()
+    if suspicious._1 then  suspendSuspicious(suspicious._2) ++ returnPayments(msg.caller, payments) else
+
+    func parsePayments(acc:(List[Int], Int), assetId: String) = {
+        let (newBalances, i) = acc
+        func parsePayment(newBalance: Int, payment: AttachedPayment) = {
+            if payment.assetId.getStrAssetId() == assetId then
+                newBalance + payment.amount
+            else
+                newBalance
+        }
+        let newBalace = FOLD<10>(payments, xp[i], parsePayment)
+        (newBalances :+ newBalace, i+1)
+
+    }
+    let (newBalances, k) = (FOLD<10>(assetIds, ([], 0), parsePayments))
+    if(checkDAppThreshold(newBalances)) then throw() else
+
+    let D1 = getDMem(newBalances, amp)
+    if(assert(D1 > D0)) then throw("D1 > D0") else
+
+    let feeDiscount = calculateFeeDiscount(msg.caller)
+
+    func calcScriptActions(acc:(List[Int], List[IntegerEntry|ScriptTransfer], Int), newBalance: Int) = {
+        let (invBalances, scriptActions, i) = acc
+        if(shareSupply > 0) then
+            let _fee = fee.fraction(feeDiscount, feeScale6, CEILING) * nCoins / (4 * (nCoins - 1))
+            let fees = {
+                let idealBalance = fraction(D1, xp[i], D0)
+                let difference = if(idealBalance > newBalance) then
+                    idealBalance - newBalance
+                else
+                    newBalance - idealBalance
+                fraction(_fee, difference, feeScale6)
+            }
+            let governanceFees = fraction(fees, feeGovernance, feeScale6)
+            let teamFees = fraction(fees, feeTeam, feeScale6)
+            let finalBalance = newBalance - fees
+            let invariantBalance = newBalance - fees
+            let pmt = newBalance - xp[i]
+            let lpFees = fees - governanceFees - teamFees
+            strict inv = if( pmt > 0) then
+                    stake(pmt - fees, assetIds[i])
+                else
+                    unstake(fees, assetIds[i])
+            strict airdrop = if lpFees > 0 then
+                    invoke(lpFarmingAddress, "airDrop", [], [AttachedPayment(assetIds[i].fromBase58String(), lpFees)])
+                else
+                    0
+            (
+                invBalances :+ invariantBalance,
+                scriptActions ++ [
+                    ScriptTransfer(moneyBoxAddress, governanceFees, assetIds[i].fromBase58String()),
+                    ScriptTransfer(teamBoxAddress, teamFees, assetIds[i].fromBase58String()),
+                    IntegerEntry(assetIds[i] + kAssetBalance, finalBalance)
+                ],
+                i + 1
+            )
+        else
+            strict inv = stake(newBalance, assetIds[i])
+            (
+                    invBalances :+ newBalance,
+                    scriptActions :+ IntegerEntry(assetIds[i] + kAssetBalance, newBalance),
+                    i + 1
+            )
+    }
+
+    let (invBalances, scriptActions) = FOLD<10>(newBalances, ([], [], 0), calcScriptActions)
+    let D2 = getDMem(invBalances, amp)
+
+    let mint_amount = if(shareSupply == 0) then
+        D1
+    else
+        fraction(shareSupply, D2 - D0, D0) #D2 - D0, D0)
+
+    if(assert(mint_amount >= minMintAmount)) then throw("Slippage screwed you") else
+        if stakeFarming then
+            strict re = invoke(this, "reissueShare", [mint_amount], [])
+            strict s = invoke(farmingAddress, "lockShareTokensFromPool", [msg.caller.bytes, this.toString(), lockType], [AttachedPayment(shareAssetId, mint_amount)] ++ lockFee)
+            scriptActions :+ IntegerEntry(kShareAssetSupply, shareSupply + mint_amount)
+        else
+            scriptActions ++
+            [
+                Reissue(shareAssetId, mint_amount, true),
+                ScriptTransfer(msg.caller, mint_amount, shareAssetId),
+                IntegerEntry(kShareAssetSupply, shareSupply + mint_amount)
+            ]
+})})
+
+@Callable(msg)
+func calcMintAmount(newBalances: List[Int], user: String)= {
+    let amp = _A()
+    let xp = _xp()
+    let D1 = getDMem(newBalances, amp)
+    if(shareSupply == 0) then
+        ([], D1)
+    else
+        let D0 = getDMem(xp, amp)
+        let feeDiscount = calculateFeeDiscount(user)
+        func calcInvBalances(acc:(List[Int], Int), newBalance: Int) = {
+            let (invBalances, i) = acc
+                let _fee = fee.fraction(feeDiscount, feeScale6, CEILING) * nCoins / (4 * (nCoins - 1))
+                let fees = {
+                    let idealBalance = fraction(D1, xp[i], D0)
+                    let difference = if(idealBalance > newBalance) then
+                        idealBalance - newBalance
+                    else
+                        newBalance - idealBalance
+                    fraction(_fee, difference, feeScale6)
+                }
+                let invariantBalance = newBalance - fees
+                (invBalances :+ invariantBalance, i + 1)
+        }
+
+        let (invBalances, k) = FOLD<10>(newBalances, ([], 0), calcInvBalances)
+        let D2 = getDMem(invBalances, amp)
+        let mintAmount = fraction(shareSupply, D2 - D0, D0)
+        ([], mintAmount)
+}
+
+@Callable(msg)
+func reissueShare(amount:Int) =
+    isSelfCall(msg).valueOrElse({
+        [Reissue(shareAssetId, amount, true)]
+    })
+
+
+@Callable(msg)
+func getDy(assetFrom: String, assetTo: String, dx: Int, userAddress: String) = {
+    let xp = _xp()
+    let fromIndex = assetIds.indexOf(assetFrom).valueOrErrorMessage("unknown token in")
+    let toIndex = assetIds.indexOf(assetTo).valueOrErrorMessage("unknown token out")
+    let x = xp[fromIndex] + dx
+    let y = getY(fromIndex, toIndex, x, xp)
+    let dy = xp[toIndex] - y - 1
+    let feeDiscount = calculateFeeDiscount(Address(userAddress.fromBase58String()))
+
+    let _fee = fraction(fee.fraction(feeDiscount, feeScale6, CEILING), dy, feeScale6)
+    ([], (dy - _fee, _fee))
+}
+
+@Callable(msg)
+func exchange(tokenOut: String, min_dy: Int) =
+    isDepricated().valueOrElse({
+    isActive().valueOrElse({
+        if(size(msg.payments) != 1) then throw("size(payments) != 1") else
+        let suspicious = checkSuspicious()
+        if suspicious._1 then  suspendSuspicious(suspicious._2) ++ returnPayments(msg.caller, msg.payments) else
+
+        let payment = msg.payments[0]
+        let tokenIn = payment.assetId.getStrAssetId()
+        let tokenOutB58 = tokenOut.fromBase58String()
+
+        let dx = payment.amount
+        let fromIndex = assetIds.indexOf(tokenIn).valueOrErrorMessage("unknown token in")
+        let toIndex = assetIds.indexOf(tokenOut).valueOrErrorMessage("unknown token out")
+
+        let xp = _xp()
+
+        let x = xp[fromIndex] + dx
+        let y = getY(fromIndex, toIndex, x, xp)
+
+        let _dy = xp[toIndex] - y - 1
+        let feeDiscount = calculateFeeDiscount(msg.originCaller)
+        let _fee = fraction(_dy, fee.fraction(feeDiscount, feeScale6, CEILING), feeScale6)
+
+        let dy = _dy - _fee
+        let governanceFees = fraction(_fee, feeGovernance, feeScale6)
+        let teamFees = fraction(_fee, feeTeam, feeScale6)
+        if(assert(dy >= min_dy)) then throw("Exchange resulted in fewer coins than expected") else
+
+        func makeNewBalances(acc: (List[Int], Int), tokenBalance: Int) = {
+            let (newBalances, i) = acc
+            if(i == fromIndex) then
+                (newBalances:+ (tokenBalance + dx), i + 1)
+            else if (i == toIndex) then
+                (newBalances:+ (tokenBalance - _dy), i + 1)
+            else
+                (newBalances:+ tokenBalance, i + 1)
+        }
+        let (newBalances, i) = FOLD<10>(xp, ([], 0), makeNewBalances)
+
+        if(checkDAppThreshold(newBalances)) then throw() else
+
+        strict s = stake(payment.amount, payment.assetId.getStrAssetId())
+        strict us = unstake(_dy, tokenOut)
+        let lpFees = _fee - governanceFees - teamFees
+        strict airdrop = if lpFees > 0 then
+                            invoke(lpFarmingAddress, "airDrop", [], [AttachedPayment(tokenOutB58, lpFees)])
+                        else
+                            0
+        (
+            [
+                IntegerEntry(tokenIn + kAssetBalance, x),
+                IntegerEntry(tokenOut + kAssetBalance, xp[toIndex] - _dy),
+                ScriptTransfer(msg.caller, dy, tokenOutB58),
+                ScriptTransfer(moneyBoxAddress, governanceFees, tokenOutB58),
+                ScriptTransfer(teamBoxAddress, teamFees, tokenOutB58)
+            ],
+            [dy, tokenOutB58]
+        )
+    })})
+
+@Callable(msg)
+func withdraw(minAmounts: List[Int]) =
+    isActive().valueOrElse({
+        calcWithdraw(msg, minAmounts, 0)
+    })
+
+@Callable(msg)
+func withdrawWithUnlock(minAmounts: List[Int], unlockAmount: Int) =
+    isActive().valueOrElse({
+        if(unlockAmount <= 0) then throw("Unlock amount must be positive") else
+        strict unlock = invoke(farmingAddress, "withdrawShareTokensFromPool", [msg.caller.bytes, this.toString(), unlockAmount], [])
+        calcWithdraw(msg, minAmounts, unlockAmount)
+    })
+
+@Callable(msg)
+func calcWithdrawOneCoin(tokenAmount: Int, tokenOut: String, user:String) = {
+    if(tokenAmount <= 0) then throw("Amount must be positive") else
+    let i = assetIds.indexOf(tokenOut).valueOrErrorMessage("unknown token out")
+    ([], _calcWithdrawOneCoin(_xp(), tokenAmount, i, Address(user.fromBase58String()))._1)
+}
+
+@Callable(msg)
+func withdrawOneCoin(tokenOut: String, minAmount: Int) =
+    isDepricated().valueOrElse({
+    isActive().valueOrElse({
+        if(size(msg.payments) != 1) then throw("size(payments) != 1") else
+        calcWithdrawOneCoinEntries(msg, tokenOut, minAmount, 0)
+    })})
+
+@Callable(msg)
+func withdrawOneCoinWithUnlock(tokenOut: String, minAmount: Int, unlockAmount: Int) =
+    isDepricated().valueOrElse({
+    isActive().valueOrElse({
+        if(unlockAmount < 0) then throw("Unlock amount must be positive") else
+        strict unlock = invoke(farmingAddress, "withdrawShareTokensFromPool", [msg.caller.bytes, this.toString(), unlockAmount], [])
+        calcWithdrawOneCoinEntries(msg, tokenOut, minAmount, unlockAmount)
+    })})
+
+@Callable(msg)
+func A() = {
+    ([], _A())
+}
+
+@Callable(msg)
+func getVirtualPrice() = {
+    let D = get_D(_xp(), _A())
+    ([], fraction(D, PRECISION, shareSupply))
+}
+
+@Callable(msg)
+func calcTokenAmount(amounts:List[Int], deposit: Boolean) = {
+    let amp = _A()
+    let balances = _xp()
+    let D0 = getDMem(balances, amp)
+    func calcNewBalances(acc: (List[Int], Int), balance: Int) = {
+        let (newBalances, i) = acc
+        let newBalance = balance + if(deposit) then amounts[i] else -amounts[i]
+        (newBalances :+ newBalance, i + 1)
+    }
+    let newBalances = (FOLD<10>(balances, ([], 0), calcNewBalances))._1
+
+    let D1 = getDMem(newBalances, amp)
+    let diff = if(deposit) then D1 - D0 else D0 - D1
+    ([], fraction(diff, shareSupply, D0))
+}
+
+#### Admin functions ###
+
+@Callable(msg)
+func rampA(_futureA: Int, _futureTime: Int) =
+    isActive().valueOrElse({
+    isAdminCall(msg).valueOrElse({
+        if(assert(blockTimestamp >= initial_A_time + MIN_RAMP_TIME)) then throw("too often") else
+        if(assert(_futureTime >= blockTimestamp + MIN_RAMP_TIME)) then throw("insufficient time") else
+        let _initial_A = _A()
+        if(assert((_futureA > 0) && (_futureA < MAX_A))) then throw("out of base range") else
+        if(assert(((_futureA >= _initial_A) && (_futureA <= _initial_A * MAX_A_CHANGE)) ||
+                    ((_futureA <  _initial_A) && (_futureA * MAX_A_CHANGE >= _initial_A)))) then throw("out of range") else
+
+        [
+            IntegerEntry("initial_A", _initial_A),
+            IntegerEntry("future_A", _futureA),
+            IntegerEntry("initial_A_time", blockTimestamp),
+            IntegerEntry("future_A_time", _futureTime)
+        ]
+    })})
+
+@Callable(msg)
+func stopRampA() =
+    isActive().valueOrElse({
+    isAdminCall(msg).valueOrElse({
+        let currentA = _A()
+        [
+            IntegerEntry("initial_A", currentA),
+            IntegerEntry("future_A", currentA),
+            IntegerEntry("initial_A_time", blockTimestamp),
+            IntegerEntry("future_A_time", blockTimestamp)
+        ]
+    })})
+
+@Callable(msg)
+func shutdown() =
+    isAdminCall(msg).valueOrElse({
+        if !active then
+            throw("DApp is already suspended. Cause: " + this.getString(kCause).valueOrElse("the cause wasn't specified"))
+        else
+            suspend("Paused by admin")
+    })
+
+@Callable(msg)
+func activate() =
+    isAdminCall(msg).valueOrElse({
+        if active then throwIsActive() else
+        [
+            BooleanEntry(kActive, true),
+            DeleteEntry(kCause)
+        ]
+    })
+
+@Callable(msg)
+func takeIntoAccountExtraFunds() =
+    isActive().valueOrElse({
+        strict claim = if assetIds.containsElement(USDN.toBase58String()) then
+                invoke(stakingUSDNAddress, "claimRewards", [], [])
+            else 0
+        if msg.caller != moneyBoxAddress then throw("Only the wallet can call this function") else
+        let balances = _xp()
+        func takeExtraFunds(acc: (Int, Int), assetId: String) = {
+            let (sum, i) = acc
+            let tokenB58 = assetId.fromBase58String()
+            let rBalance = this.assetBalance(tokenB58) + stakedAmount(tokenB58)
+            let enrollAmount = rBalance - balances[i]
+            if enrollAmount < 0 then suspend("Enroll amount negative for asset" + assetId) else
+            strict airdrop = if enrollAmount > 0 then
+                    invoke(lpFarmingAddress, "airDrop", [], [AttachedPayment(tokenB58, enrollAmount)])
+                else 0
+            (sum + enrollAmount, i + 1)
+        }
+        let k = FOLD<10>(assetIds, (0, 0), takeExtraFunds)
+        if k._1 == 0 then throw("No money to take") else
+        []
+    })
+
+@Verifier(tx)
+func verify() = {
+    let multiSignedByAdmins = {
+        let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
+        let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
+        let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
+        adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
+    }
+    match tx {
+        case inv: InvokeScriptTransaction =>
+            let callTakeIntoAccount = inv.dApp == this && inv.function == "takeIntoAccountExtraFunds"
+            let signedByAdmin =
+                sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1)
+                || sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey2)
+                || sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey3)
+                || sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKeyInvoke)
+
+            (callTakeIntoAccount && signedByAdmin)
+            || multiSignedByAdmins
+        case _ => multiSignedByAdmins
+    }
+}

@@ -1,122 +1,131 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 6 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let adminPubKey1 = base58'DXDY2itiEcYBtGkVLnkpHtDFyWQUkoLJz79uJ7ECbMrA'
-let adminPubKey2 = base58'E6Wa1SGoktYcjHjsKrvjMiqJY3SWmGKcD8Q5L8kxSPS7'
-let adminPubKey3 = base58'AZmWJtuy4GeVrMmJH4hfFBRApe1StvhJSk4jcbT6bArQ'
-let adminPubKeyWallet = base58'GTY8yEJ2S4heRompxyvbJoBN1Td5BM5Pp4JgVbj9tmCw'
-
 # SWOP voting: keys and function | start
-let keyActive = "active"
-let keyCause = "shutdown_cause"
-let keyLastInterest = "last_interest"
-let keyUserLastInterest = "_last_interest"
-let keyUserSWOPLocked = "_SWOP_amount"
-let keyUserGetBackHeight = "_getBackHeight"
-let keyTotalSWOPLocked = "total_SWOP_amount"
-let kUserTotalVoteSWOP = "_user_total_SWOP_vote"
-let keyUserVoteOptionAmount = "_SWOP_option_amount"
-let keyTotalVoteOptionAmount = "total_SWOP_option_amount"
-let keyUserSWOPClaimedAmount = "_SWOP_claimed_amount"
-let keyUserSWOPLastClaimedAmount = "_SWOP_last_claimed_amount"
-let keyVoteName = "vote_name"
-let keyOptionName = "_option_name"
-let keyVotingStartHeight = "_startHeight"
-let keyVoteDuration = "_vote_duration"
-let keyRewardPoolFractionCurrent = "_current_pool_fraction_reward"
-let keyRewardPoolFractionPrevious = "_previous_pool_fraction_reward"
-let keyHeightPoolFraction = "_pool_reward_update_height"
-let keyTotalRewardPerBlockCurrent = "total_reward_per_block_current"
-let keyTotalRewardPerBlockPrevious = "total_reward_per_block_previous"
-let keyRewardUpdateHeight = "reward_update_height"
-let keyRewardUpdateFirstPaginationHeight = "reward_update_height_first_pagination"
-let keyNoVotingForNewPool = "_vote_no"
-let keyYesVotingForNewPool = "_vote_yes"
-let keyAmountOfVotingForNewPool = "max_amount_voting"
-let keyStatusOfVotingForNewPool = "_status"
-let keyHeightOfPoolVotingForNewPool  = "_finish_height"
+let kActive = "active"
+let kActiveGlob = "active_all_contracts"
+let kCause = "shutdown_cause"
+let kLastInterest = "last_interest"
+let kUserLastInterest = "_last_interest"
+let kUserSWOPLocked = "_SWOP_amount"
+let kTotalSWOPLocked = "total_SWOP_amount"
+let kUserSwopUnlockHeight = "_SWOP_unlock_height"
+let kUserGSwopLocked = "_GSwop_amount"
+let kTotalGSwopLocked = "total_GSwop_amount"
+let kUserTotalVoteSWOP = "_user_total_vote_gSWOP"
+let kUserAvailableForClaim = "_user_available_for_claim"
+let kRewardPoolFractionCurrent = "_current_pool_fraction_reward"
+let kRewardPoolFractionPrevious = "_previous_pool_fraction_reward"
+let kHeightPoolFraction = "_pool_reward_update_height"
+let kRewardUpdateHeight = "reward_update_height"
+let kRewardUpdateFirstPaginationHeight = "reward_update_height_first_pagination"
+let kNoVotingForNewPool = "_vote_no"
+let kYesVotingForNewPool = "_vote_yes"
+let kStatusOfVotingForNewPool = "_status"
+let kHeightOfPoolVotingForNewPool  = "_finish_height"
 let activeVoteFirst = "voting_active_cell_1"
 let activeVoteSecond = "voting_active_cell_2"
 let activeVoteThird = "voting_active_cell_3"
-let keyTempCurSum = "sum_reward_current"
-let keyLaunchpadBoughtTickets = "_bought_tickets"
-let keyLaunchpadSwopPerTickets = "_swop_per_ticket"
-let keyLaunchpadActiveId = "launchpad_active_id"
-let keyLaunchpadDuration = "_duration"
-let keyLaunchpadStartHeight = "_start_height"
-let keyLauchpadFreezSwopDuration = "_freeze_swop_duration"
-
-let isActive = this.getBoolean(keyActive).valueOrElse(true)
-
-let farmingSWOPAddress = Address(base58'3P73HDkPqG15nLXevjCbmXtazHYTZbpPoPw')
-let votingLiteContract = Address(base58'3PQZWxShKGRgBN1qoJw6B4s9YWS9FneZTPg')
-let votingForNewPool = Address(base58'3PHgHf5C4WvHJucSHrjoVnMFsP1EhWffVLt')
-let launchpad = Address(base58'3P6YGPihPiF81VELikoV1myU55iwTvmcQaQ')
-
-let keySWOPid = "SWOP_id"
-let SWOP = farmingSWOPAddress.getStringValue(keySWOPid).fromBase58String()
-let scaleValue = 100000000 # 10^8
-let totalVoteShare = 10000000000
-
+let kTempCurSum = "sum_reward_current"
+let kLaunchpadBoughtTickets = "_bought_tickets"
+let kLaunchpadSwopPerTickets = "_swop_per_ticket"
+let kLaunchpadActiveId = "launchpad_active_id"
+let kLaunchpadDuration = "_duration"
+let kLaunchpadStartHeight = "_start_height"
 let kStartHeight = "start_height"
 let kBasePeriod = "base_period"
 let kPeriodLength = "period_length"
 let kUserTotalStruc = "_user_total_struc"
+let kLauchpadFreezSwopDuration = "_freeze_swop_duration"
+let kSWOPid = "SWOP_id"
+let kAirdropFee = "airdrop_fee"
 
-let basePeriod = votingLiteContract.getInteger(kBasePeriod).valueOrErrorMessage("Empty kBasePeriod at voting contract")
-let startHeight = votingLiteContract.getInteger(kStartHeight) .valueOrErrorMessage("Empty kStartHeight at voting contract")
-let periodLength =  votingLiteContract.getInteger(kPeriodLength).valueOrErrorMessage("Empty kPeriodLength at voting contract")
-let firstActiveVote = votingForNewPool.getString(activeVoteFirst).valueOrElse("")
-let secondActiveVote = votingForNewPool.getString(activeVoteSecond).valueOrElse("")
-let thirdActiveVote = votingForNewPool.getString(activeVoteThird).valueOrElse("")
+let kAdminPubKey1 = "admin_pub_1"
+let kAdminPubKey2 = "admin_pub_2"
+let kAdminPubKey3 = "admin_pub_3"
+let kMoneyBoxPubKey = "money_box_pub_key"
+let kFarmingAddr = "farming_address"
+let kVotingAddr = "voting_address"
+let kVotingNewPoolAddr = "voting_new_pool_address"
+let kLaunchpadAddr = "launchpad_address"
+let kOraclePool = "pool_"
 
-let currVotingPeriod = basePeriod + (height-startHeight)/periodLength
+let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+    case string: String => string.fromBase58String()
+    case nothing => throw(key + "is empty")
+}
+let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
+let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
+let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
+let moneyBoxPubKey = getBase58FromOracle(kMoneyBoxPubKey)
+
+let farmingAddr = Address(getBase58FromOracle(kFarmingAddr))
+let votingAddr = Address(getBase58FromOracle(kVotingAddr))
+let votingNewPoolAddr = Address(getBase58FromOracle(kVotingNewPoolAddr))
+let launchpadAddr = Address(getBase58FromOracle(kLaunchpadAddr))
+
+let lockSwopBlocksAmount = 10102 * 4 # period on swop locked in governance
+let SWOP = farmingAddr.getStringValue(kSWOPid).fromBase58String()
+let scaleValue = 100000000 # 10^8
+let totalVoteShare = 10000000000
+let feeSacle6 = 1000000
+
+let basePeriod = votingAddr.getInteger(kBasePeriod).valueOrErrorMessage("Empty kBasePeriod at voting contract")
+let startHeight = votingAddr.getInteger(kStartHeight) .valueOrErrorMessage("Empty kStartHeight at voting contract")
+let periodLength =  votingAddr.getInteger(kPeriodLength).valueOrErrorMessage("Empty kPeriodLength at voting contract")
+let firstActiveVote = votingNewPoolAddr.getString(activeVoteFirst).valueOrElse("")
+let secondActiveVote = votingNewPoolAddr.getString(activeVoteSecond).valueOrElse("")
+let thirdActiveVote = votingNewPoolAddr.getString(activeVoteThird).valueOrElse("")
+let active = this.getBoolean(kActive).valueOrElse(true)
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+let currVotingPeriod = basePeriod + (height - startHeight) / periodLength
 
 func suspend(cause: String) = [
-    BooleanEntry(keyActive, false),
-    StringEntry(keyCause, cause)
+    BooleanEntry(kActive, false),
+    StringEntry(kCause, cause)
 ]
 
-func throwNotEnoughSWOP() = throw("Not enough SWOP: userSWOPLocked - userTotalVoteAmount < voteSWOPAmount")
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
 
-func getLastInterestInfo() = {
-    let lastInterest = this.getInteger(keyLastInterest)
-                           .valueOrElse(0)
-    lastInterest
+func isAdminCall(i:Invocation) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then unit
+        else throw("Only admin can call this function")
+
+func getLastInterestInfo() = this.getInteger(kLastInterest).valueOrElse(0)
+
+func getTotalLockedInfo() = {
+    let totalSwopLocked = this.getInteger(kTotalSWOPLocked).valueOrElse(0)
+    let totalGSwopLocked = this.getInteger(kTotalGSwopLocked).valueOrElse(totalSwopLocked)
+    (totalSwopLocked, totalGSwopLocked)
 }
 
-func getUserSWOPLocked(user:Address) =  this.getInteger(user.toString() + keyUserSWOPLocked)
-                                                .valueOrElse(0)
-
-func getUserSWOPClaimedAmount(user:Address) =  this.getInteger(user.toString() + keyUserSWOPClaimedAmount)
-                                                .valueOrElse(0)
-
-func getUserTotalVoteAmount(user:Address) = votingLiteContract.getInteger(user.toString() + kUserTotalVoteSWOP)
-                                                .valueOrElse(0)
-
-func getUserInterestInfo(user:Address, lastInterest: Int) = {
-    let userSWOPAmount = getUserSWOPLocked(user)
-    let userLastInterest = this.getInteger(user.toString() + keyUserLastInterest)
-    let userLastInterestValue = match userLastInterest {
-        case userLastInterest: Int => userLastInterest
-        case _ => lastInterest
-    }
-    (userLastInterestValue,userSWOPAmount)
+func getUserLockedInfo(user:String) = {
+    let userSwopLocked = this.getInteger(user + kUserSWOPLocked).valueOrElse(0)
+    let userGSwopLocked = this.getInteger(user + kUserGSwopLocked).valueOrElse(userSwopLocked)
+    (userSwopLocked, userGSwopLocked)
 }
+
+func getUserInterestInfo(user:String, lastInterest: Int) = {
+    let (userSWOPAmount, userGSwopAmount) = getUserLockedInfo(user)
+    let userLastInterest = this.getInteger(user + kUserLastInterest).valueOrElse(lastInterest)
+    (userLastInterest, userSWOPAmount, userGSwopAmount)
+}
+
+func getUserAvailableForClaim(user:String) = this.getInteger(user + kUserAvailableForClaim).valueOrElse(0)
 
 func getUserTotalVoteAmountForOnePool(pool: String, user:Address) = {
-    let voting = votingForNewPool.getInteger(pool).valueOrElse(-1)
-    let heightOfVoting = votingForNewPool.getInteger(voting.toString() + keyHeightOfPoolVotingForNewPool).valueOrElse(0)
-    let statusOfVoting = votingForNewPool.getBoolean(voting.toString() + keyStatusOfVotingForNewPool).valueOrElse(true)
+    let voting = votingNewPoolAddr.getInteger(pool).valueOrElse(-1)
+    let heightOfVoting = votingNewPoolAddr.getInteger(voting.toString() + kHeightOfPoolVotingForNewPool).valueOrElse(0)
+    let statusOfVoting = votingNewPoolAddr.getBoolean(voting.toString() + kStatusOfVotingForNewPool).valueOrElse(true)
     let currentHeight = height
     if (voting < 0) then
         (0)
     else if (!statusOfVoting) then
         (0)
     else if (heightOfVoting > currentHeight) then {
-        votingForNewPool.getInteger(user.toString() + "_" + voting.toString() + keyYesVotingForNewPool).valueOrElse(0) +
-        votingForNewPool.getInteger(user.toString() + "_" + voting.toString() + keyNoVotingForNewPool).valueOrElse(0)
+        votingNewPoolAddr.getInteger(user.toString() + "_" + voting.toString() + kYesVotingForNewPool).valueOrElse(0) +
+        votingNewPoolAddr.getInteger(user.toString() + "_" + voting.toString() + kNoVotingForNewPool).valueOrElse(0)
     } else
         (0)
 }
@@ -131,195 +140,212 @@ func getUserTotalVoteForNewPoolAmount(user:Address) = {
 }
 
 func getUserBlockedInLauchpad(user:Address) = {
-    let lauchpadId = launchpad.getInteger(keyLaunchpadActiveId).valueOrElse(0).toString()
+    let lauchpadId = launchpadAddr.getInteger(kLaunchpadActiveId).valueOrElse(0).toString()
     if lauchpadId == "0" then
         (0)
     else
-        let lStartHeight = launchpad.getInteger(lauchpadId + keyLaunchpadStartHeight).valueOrElse(0) 
-        let lDuration = launchpad.getInteger(lauchpadId + keyLaunchpadDuration).valueOrElse(0) 
-        let lFreezeSwopDuration = launchpad.getInteger(lauchpadId + keyLauchpadFreezSwopDuration).valueOrElse(0) 
+        let lStartHeight = launchpadAddr.getInteger(lauchpadId + kLaunchpadStartHeight).valueOrElse(0)
+        let lDuration = launchpadAddr.getInteger(lauchpadId + kLaunchpadDuration).valueOrElse(0)
+        let lFreezeSwopDuration = launchpadAddr.getInteger(lauchpadId + kLauchpadFreezSwopDuration).valueOrElse(0)
         let blockEndHeight = lStartHeight + lDuration + lFreezeSwopDuration
         if blockEndHeight < height then
             (0)
         else
-            let boughtTickets = launchpad.getInteger(user.toString() + "_" + lauchpadId + keyLaunchpadBoughtTickets).valueOrElse(0)
-            let swopPerTicket = launchpad.getInteger(lauchpadId + keyLaunchpadSwopPerTickets).valueOrElse(0)
+            let boughtTickets = launchpadAddr.getInteger(user.toString() + "_" + lauchpadId + kLaunchpadBoughtTickets).valueOrElse(0)
+            let swopPerTicket = launchpadAddr.getInteger(lauchpadId + kLaunchpadSwopPerTickets).valueOrElse(0)
             (boughtTickets * swopPerTicket)
 }
 
-func getTotalSWOPLocked() = this.getInteger(keyTotalSWOPLocked)
-                                                .valueOrElse(0)
 
-func getUserVoteInfo(user:Address) = {
-    let (userTotalVoteSWOP,userUnvoted,userUnvotedPeriod) = if isDefined(votingLiteContract.getString(user.toString() + kUserTotalStruc))
+func getUserTotalVote(user:Address) = {
+    if isDefined(votingAddr.getString(user.toString() + kUserTotalStruc))
         then
-            let data = votingLiteContract.getString(user.toString() + kUserTotalStruc).valueOrErrorMessage("Empty kUserTotalStruc").split("_")
-            (data[0].parseIntValue(),data[1].parseIntValue(),data[2].parseIntValue())
+            votingAddr.getString(user.toString() + kUserTotalStruc).valueOrErrorMessage("Empty kUserTotalStruc").split("_")[0].parseIntValue()
         else
-            let uPoolTotalSWOP = votingLiteContract.getInteger(toString(user) + kUserTotalVoteSWOP).valueOrElse(0)
-            (uPoolTotalSWOP,0,currVotingPeriod)
-
-    let userUnvotedActual = if userUnvotedPeriod == currVotingPeriod then userUnvoted else 0
-
-    (userTotalVoteSWOP,userUnvotedActual)
+            votingAddr.getInteger(toString(user) + kUserTotalVoteSWOP).valueOrElse(0)
 }
 
-func getUserVoteOptionAmount(user:Address) = this.getInteger(user.toString() + keyUserVoteOptionAmount)
+func getPoolUpdateHeight(pool: String) = this.getInteger(pool + kHeightPoolFraction)
                                                 .valueOrElse(0)
 
-func getVotingStartHeight(voteName:String) =  this.getInteger(voteName + keyVotingStartHeight)
-                                                .valueOrElse(0)
-
-func getPoolUpdateHeight(pool: String) = this.getInteger(pool+keyHeightPoolFraction)
-                                                .valueOrElse(0)
-
-func isDefinePoolUpdateHeight(pool: String) = this.getInteger(pool+keyHeightPoolFraction)
+func isDefinePoolUpdateHeight(pool: String) = this.getInteger(pool + kHeightPoolFraction)
                                                 .isDefined()
 
-func getCurPoolWeight(pool: String) = this.getInteger(pool+keyRewardPoolFractionCurrent)
+func getCurPoolWeight(pool: String) = this.getInteger(pool + kRewardPoolFractionCurrent)
                                                 .valueOrElse(0)
 
-func getPrevPoolWeight(pool: String) = this.getInteger(pool+keyRewardPoolFractionPrevious)
+func getPrevPoolWeight(pool: String) = this.getInteger(pool + kRewardPoolFractionPrevious)
                                                 .valueOrElse(0)
 
-func getVoteOptionAmount(user:Address, voteName:String, option:String) =  {
-    let userVoteOptionAmount = this.getInteger(voteName + option + user.toString() + keyUserVoteOptionAmount)
-    let uvoa = match userVoteOptionAmount {
-        case uvoa: Int => uvoa
-        case uvoa: Unit => 0
-        }
-    uvoa.valueOrErrorMessage("No data on the key: " + voteName + option + user.toString() + keyUserVoteOptionAmount)
-}
-
-func getVoteDuration(voteName:String) =  this.getInteger(voteName + keyVoteDuration)
-                                                .valueOrErrorMessage("No data on the key: " + voteName + keyVoteDuration)
-
-func getTotalVoteOptionAmount(voteName: String, option: String) = {
-    let totalVoteOptionAmount = this.getInteger(voteName + option +  keyTotalVoteOptionAmount)
-    let tvoa = match totalVoteOptionAmount {
-        case tvoa: Int => tvoa
-        case tvoa: Unit => 0
-        }
-    tvoa
-}
-
-func getUserGetBackAmount(voteName:String,option:String,user:Address,getBackSWOPHeight:Int) = {
-    let key = voteName + "_" + option + "_" + user.toString() + "_" + getBackSWOPHeight.toString()
-    this.getInteger(key)
-        .valueOrErrorMessage("No data on the key: " + key)
-}
 # SWOP voting: keys and function | end
-func claimCalc(caller:Address) = {
+func claimCalc(user:String) = {
     let lastInterest = getLastInterestInfo()
-    let (userLastInterest,userSWOPLocked) = getUserInterestInfo(caller,lastInterest)
-    let claimAmount = fraction(userSWOPLocked,lastInterest-userLastInterest,scaleValue)
+    let (userLastInterest, userSWOPLocked, userGSwopAmount) = getUserInterestInfo(user, lastInterest)
+    let claimAmount = fraction(userGSwopAmount, lastInterest - userLastInterest, scaleValue)
     let userNewInterest = lastInterest
-    (userNewInterest,claimAmount)
+    (userNewInterest, claimAmount)
 }
+
+func isOraclePool(poolAddress: String) = if oracle.getString(kOraclePool + poolAddress).isDefined() then unit else throw("DApp is not registered pool")
 
 @Callable(i)
-func airDrop() = if !isActive then throw("DApp is inactive at this moment") else {
+func addPool(poolAddress:String) =
+isAdminCall(i).valueOrElse(
+isActive().valueOrElse(
+isOraclePool(poolAddress).valueOrElse({
+    if(this.getInteger(poolAddress + kRewardPoolFractionCurrent).isDefined()) then throw("Pool already in governance") else
+    [
+        IntegerEntry(poolAddress + kRewardPoolFractionCurrent, 0),
+        IntegerEntry(poolAddress + kRewardPoolFractionPrevious, 0),
+        IntegerEntry(poolAddress + kHeightPoolFraction, this.getIntegerValue(kRewardUpdateHeight))
+    ]
+})))
+
+@Callable(i)
+func airDrop() = isActive().valueOrElse({
     let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
     if (pmtAssetId != SWOP)
         then throw("Incorrect pmtAssetId")
     else {
-        let totalSWOPLocked = getTotalSWOPLocked()
+        let (totalSWOPLocked, totalGSwopLocked) = getTotalLockedInfo()
         let lastInterest = getLastInterestInfo()
-        let interestNew = (lastInterest + fraction(pmtAmount, scaleValue, totalSWOPLocked))
-        [IntegerEntry(keyLastInterest, interestNew)]
+        let interestNew = (lastInterest + fraction(pmtAmount, scaleValue, totalGSwopLocked))
+        [
+            IntegerEntry(kLastInterest, interestNew)
+        ]
     }
-}
+})
 
 @Callable(i)
-func lockSWOP() = if !isActive then throw("DApp is inactive at this moment") else {
+func lockSWOP() = isActive().valueOrElse({
     let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
     if pmtAssetId != SWOP then throw("Incorrect pmtAssetId") else
+    let user = i.caller.toString()
     let lastInterest = getLastInterestInfo()
-    let (userLastInterest,userSWOPLocked) = getUserInterestInfo(i.caller,lastInterest)
-    let claimAmount = fraction(userSWOPLocked,lastInterest-userLastInterest,scaleValue)
-    let userSWOPLockedNew = userSWOPLocked + pmtAmount + claimAmount
-    let userNewInterest = lastInterest
-    let totalSWOPLocked = getTotalSWOPLocked()
-    let totalSWOPLockedNew = totalSWOPLocked + pmtAmount + claimAmount
-    let userClaimedAmount = getUserSWOPClaimedAmount(i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
+    let (userSWOPLocked, userGSwopLocked) = getUserLockedInfo(user)
+    let (userNewInterest, claimAmountAvailable) = claimCalc(user)
+    let availableForClaim = getUserAvailableForClaim(user)
+    let availableForClaimNew = availableForClaim + claimAmountAvailable
+    let userSWOPLockedNew = userSWOPLocked + pmtAmount
+    let userGSwopLockedNew = userGSwopLocked + pmtAmount
+    let (totalSWOPLocked, totalGSwopLocked) = getTotalLockedInfo()
+    let totalSWOPLockedNew = totalSWOPLocked + pmtAmount
+    let totalGSwopLockedNew = totalGSwopLocked + pmtAmount
     [
-        IntegerEntry(i.caller.toString() + keyUserLastInterest, userNewInterest),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLocked, userSWOPLockedNew),
-        IntegerEntry(keyTotalSWOPLocked, totalSWOPLockedNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount)
+        IntegerEntry(user + kUserSwopUnlockHeight, height + lockSwopBlocksAmount),
+        IntegerEntry(user + kUserLastInterest, userNewInterest),
+        IntegerEntry(user + kUserSWOPLocked, userSWOPLockedNew),
+        IntegerEntry(user + kUserGSwopLocked, userGSwopLockedNew),
+        IntegerEntry(user + kUserAvailableForClaim, availableForClaimNew),
+        IntegerEntry(kTotalSWOPLocked, totalSWOPLockedNew),
+        IntegerEntry(kTotalGSwopLocked, totalGSwopLockedNew)
     ]
-}
+})
 
 @Callable(i)
-func withdrawSWOP(withdrawAmount: Int) = if !isActive then throw("DApp is inactive at this moment") else {
+func withdrawSWOP(withdrawAmount: Int) = isActive().valueOrElse({
+    let user = i.caller.toString()
+    let unlockHeight = this.getInteger(user + kUserSwopUnlockHeight).valueOrElse(0)
     if withdrawAmount <= 0 then throw("withdrawAmount <= 0") else
-    let totalSWOPLocked = getTotalSWOPLocked()
-    let userSWOPLocked = getUserSWOPLocked(i.caller)
-    let (userNewInterest,claimAmount) = claimCalc(i.caller)
-    let (userVoteAmount,userUnvoteAmount) = getUserVoteInfo(i.caller)
+    if (unlockHeight > height) then throw("You can't withdraw till " + unlockHeight.toString()) else
+    let (totalSWOPLocked, totalGSwopLocked) = getTotalLockedInfo()
+    let (userSWOPLocked, userGSwopLocked) = getUserLockedInfo(user)
+    let (userNewInterest, claimAmountAvailable) = claimCalc(user)
+    let userTotalVoteAmount = getUserTotalVote(i.caller)
     let userVoteAmountForNewPool = getUserTotalVoteForNewPoolAmount(i.caller)
     let blockedInLaunchpad = getUserBlockedInLauchpad(i.caller)
-    if userUnvoteAmount < 0 || userVoteAmount < 0 || userVoteAmountForNewPool < 0 then throw("userUnvoteAmount < 0 || userVoteAmount < 0 || userVoteAmountForNewPool < 0") else
-    let availableToUnstake = userSWOPLocked - max([userVoteAmountForNewPool,userVoteAmount + userUnvoteAmount, blockedInLaunchpad])
+    if userTotalVoteAmount < 0 || userVoteAmountForNewPool < 0 then throw("userVoteAmount < 0 || userVoteAmountForNewPool < 0") else
+    let availableToUnstake = userSWOPLocked - max([userVoteAmountForNewPool, userTotalVoteAmount, blockedInLaunchpad])
 
     if withdrawAmount > availableToUnstake then throw("withdrawAmount > availableToUnstake") else
-    let totalSWOPLockedNew = totalSWOPLocked + claimAmount - withdrawAmount
-    let userSWOPamountNew = userSWOPLocked + claimAmount - withdrawAmount
-    let userClaimedAmount = getUserSWOPClaimedAmount(i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
+    let availableForClaim = getUserAvailableForClaim(user)
+    let availableForClaimNew = availableForClaim + claimAmountAvailable
+    let totalSWOPLockedNew = totalSWOPLocked - withdrawAmount
+    let userSWOPAmountNew = userSWOPLocked - withdrawAmount
+    let totalGSwopLockedNew = totalGSwopLocked - userGSwopLocked + userSWOPAmountNew
     [
-        IntegerEntry(i.caller.toString() + keyUserLastInterest, userNewInterest),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLocked, userSWOPamountNew),
-        IntegerEntry(keyTotalSWOPLocked, totalSWOPLockedNew),
-        ScriptTransfer(i.caller, withdrawAmount, SWOP),
-        IntegerEntry(i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount)
+        IntegerEntry(user + kUserLastInterest, userNewInterest),
+        IntegerEntry(user + kUserSWOPLocked, userSWOPAmountNew),
+        IntegerEntry(user + kUserGSwopLocked, userSWOPAmountNew),
+        IntegerEntry(user + kUserAvailableForClaim, availableForClaimNew),
+        IntegerEntry(kTotalSWOPLocked, totalSWOPLockedNew),
+        IntegerEntry(kTotalGSwopLocked, totalGSwopLockedNew),
+        ScriptTransfer(i.caller, withdrawAmount, SWOP)
     ]
-}
+})
 
 @Callable(i)
-func claimAndWithdrawSWOP() = if !isActive then throw("DApp is inactive at this moment") else {
+func claimAndWithdrawSWOP() = isActive().valueOrElse({
+    let user = i.caller.toString()
+    let availableForClaim = getUserAvailableForClaim(user)
+    let (userNewInterest, claimAmount) = claimCalc(user)
+    let userClaimAmount = availableForClaim + claimAmount
+    if userClaimAmount == 0 then throw("You have 0 available SWOP") else
+    [
+        IntegerEntry(user + kUserLastInterest, userNewInterest),
+        IntegerEntry(user + kUserAvailableForClaim, 0),
+        ScriptTransfer(i.caller, userClaimAmount, SWOP)
+
+    ]
+})
+
+@Callable(i)
+func claimAndStakeSWOP() = isActive().valueOrElse({
+    let user = i.caller.toString()
+    let (totalSWOPLocked, totalGSwopLocked) = getTotalLockedInfo()
+    let (userSWOPLocked, userGSwopLocked) = getUserLockedInfo(user)
+    let availableForClaim = getUserAvailableForClaim(user)
+    let (userNewInterest,claimAmount) = claimCalc(user)
+    let userClaimAmount = availableForClaim + claimAmount
+    let userSWOPLockedNew = userSWOPLocked + userClaimAmount
+    let userGSwopLockedNew = userGSwopLocked + userClaimAmount * 2
+    let totalSWOPLockedNew = totalSWOPLocked + userClaimAmount
+    let totalGSwopLockedNew = totalGSwopLocked + userClaimAmount * 2
+    if userClaimAmount == 0 then throw("You have 0 available SWOP") else
+    [
+        IntegerEntry(user + kUserSwopUnlockHeight, height + lockSwopBlocksAmount),
+        IntegerEntry(user + kUserLastInterest, userNewInterest),
+        IntegerEntry(kTotalSWOPLocked, totalSWOPLockedNew),
+        IntegerEntry(kTotalGSwopLocked, totalGSwopLockedNew),
+        IntegerEntry(user + kUserSWOPLocked, userSWOPLockedNew),
+        IntegerEntry(user + kUserGSwopLocked, userGSwopLockedNew),
+        IntegerEntry(user + kUserAvailableForClaim, 0)
+    ]
+})
+
+@Callable(i)
+func lockSWOPFromFarming() = isActive().valueOrElse({
+    let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
+    if i.caller != farmingAddr then throw("Only farming can call this function") else
+    if pmtAssetId != SWOP then throw("Incorrect pmtAssetId") else
+    let user = i.originCaller.toString()
     let lastInterest = getLastInterestInfo()
-    let (userNewInterest,claimAmount) = claimCalc(i.caller)
-    let userClaimedAmount = getUserSWOPClaimedAmount(i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
-    if claimAmount == 0 then throw("You have 0 available SWOP") else
+    let (userSWOPLocked, userGSwopLocked) = getUserLockedInfo(user)
+    let (userNewInterest, claimAmountAvailable) = claimCalc(user)
+    let availableForClaim = getUserAvailableForClaim(user)
+    let availableForClaimNew = availableForClaim + claimAmountAvailable
+    let userSWOPLockedNew = userSWOPLocked + pmtAmount
+    let userGSwopLockedNew = userGSwopLocked + pmtAmount * 2
+    let (totalSWOPLocked, totalGSwopLocked) = getTotalLockedInfo()
+    let totalSWOPLockedNew = totalSWOPLocked + pmtAmount
+    let totalGSwopLockedNew = totalGSwopLocked + pmtAmount * 2
     [
-        IntegerEntry(i.caller.toString() + keyUserLastInterest, userNewInterest),
-        IntegerEntry(i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount),
-        ScriptTransfer(i.caller, claimAmount, SWOP)
+        IntegerEntry(user + kUserSwopUnlockHeight, height + lockSwopBlocksAmount),
+        IntegerEntry(user + kUserLastInterest, userNewInterest),
+        IntegerEntry(user + kUserSWOPLocked, userSWOPLockedNew),
+        IntegerEntry(user + kUserGSwopLocked, userGSwopLockedNew),
+        IntegerEntry(user + kUserAvailableForClaim, availableForClaimNew),
+        IntegerEntry(kTotalSWOPLocked, totalSWOPLockedNew),
+        IntegerEntry(kTotalGSwopLocked, totalGSwopLockedNew)
     ]
-}
+})
 
 @Callable(i)
-func claimAndStakeSWOP() = if !isActive then throw("DApp is inactive at this moment") else {
-    let totalSWOPLocked = getTotalSWOPLocked()
-    let userSWOPLocked = getUserSWOPLocked(i.caller)
-    let lastInterest = getLastInterestInfo()
-    let (userNewInterest,claimAmount) = claimCalc(i.caller)
-    let userSWOPLockedNew = userSWOPLocked + claimAmount
-    let totalSWOPLockedNew = totalSWOPLocked + claimAmount
-    let userClaimedAmount = getUserSWOPClaimedAmount(i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
-    if claimAmount == 0 then throw("You have 0 available SWOP") else
-    [
-        IntegerEntry(i.caller.toString() + keyUserLastInterest, userNewInterest),
-        IntegerEntry(keyTotalSWOPLocked, totalSWOPLockedNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLocked, userSWOPLockedNew ),
-        IntegerEntry(i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-        IntegerEntry(i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount)
-    ]
-}
-
-@Callable(i)
-func updateWeights(currentPools: List[String],currentRewards: List[Int], rewardUpdateHeight: Int, pagination: Int) = if !isActive then throw("DApp is inactive at this moment") else {
+func updateWeights(currentPools: List[String], currentRewards: List[Int], rewardUpdateHeight: Int, pagination: Int) = isActive().valueOrElse({
     let amountPools = 10
-    let totalRewardUpdateHeight = this.getInteger(keyRewardUpdateHeight).valueOrElse(0)
+    let totalRewardUpdateHeight = this.getInteger(kRewardUpdateHeight).valueOrElse(0)
 
-    if ![adminPubKey1, adminPubKey2, adminPubKey3, adminPubKeyWallet].containsElement(i.callerPublicKey) then
+    if ![adminPubKey1, adminPubKey2, adminPubKey3, moneyBoxPubKey].containsElement(i.callerPublicKey) then
         throw("Only admin can call this function")
     else if currentPools.size() > amountPools then
         throw("Max amount of pool is " + amountPools.toString())
@@ -339,10 +365,10 @@ func updateWeights(currentPools: List[String],currentRewards: List[Int], rewardU
         if(!isDefinePoolUpdateHeight(pool) ||
         ((rewardUpdateHeight != poolRewardUpdateHeight) && (poolRewardUpdateHeight == totalRewardUpdateHeight))) then {
             let poolReward = getCurPoolWeight(pool)
-            IntegerEntry(pool+keyRewardPoolFractionPrevious,poolReward) :: accumulated
+            IntegerEntry(pool + kRewardPoolFractionPrevious, poolReward) :: accumulated
         } else {
             let poolReward = getPrevPoolWeight(pool)
-            IntegerEntry(pool+keyRewardPoolFractionPrevious,poolReward) :: accumulated
+            IntegerEntry(pool + kRewardPoolFractionPrevious, poolReward) :: accumulated
         }
     }
 
@@ -352,12 +378,13 @@ func updateWeights(currentPools: List[String],currentRewards: List[Int], rewardU
         if (poolReward < 0) then {
             throw("PoolReward < 0")
         } else
-        IntegerEntry(pool+keyRewardPoolFractionCurrent,poolReward) :: accumulated
+        IntegerEntry(pool + kRewardPoolFractionCurrent, poolReward) :: accumulated
     }
 
     func changeHeightEntry(accumulated: List[IntegerEntry], pool: String) = {
         let poolHeight = rewardUpdateHeight
-        IntegerEntry(pool+keyHeightPoolFraction,poolHeight) :: accumulated
+        strict upUIntr = invoke(farmingAddr, "updatePoolInterest", [pool], [])
+        IntegerEntry(pool + kHeightPoolFraction, poolHeight) :: accumulated
     }
 
     func getSumReward(curTempSum: Int, pagination: Int) = {
@@ -365,26 +392,26 @@ func updateWeights(currentPools: List[String],currentRewards: List[Int], rewardU
             if curTempSum > totalVoteShare then
                 throw("sumRewardPrevious > totalVoteShare or sumRewardCurrent > totalVoteShare - "
                 + pagination.toString() + " " + curTempSum.toString())  else
-            ([IntegerEntry(keyTempCurSum, curTempSum)], [IntegerEntry(keyRewardUpdateFirstPaginationHeight, rewardUpdateHeight)])
+            ([IntegerEntry(kTempCurSum, curTempSum)], [IntegerEntry(kRewardUpdateFirstPaginationHeight, rewardUpdateHeight)])
         } else if pagination == 1 then {
-            let curTempSumFromKey = this.getInteger(keyTempCurSum).valueOrElse(0)
-            let rewardUpdateHeightFirstPaginationEntry = this.getInteger(keyRewardUpdateFirstPaginationHeight).valueOrElse(0)
+            let curTempSumFromKey = this.getInteger(kTempCurSum).valueOrElse(0)
+            let rewardUpdateHeightFirstPaginationEntry = this.getInteger(kRewardUpdateFirstPaginationHeight).valueOrElse(0)
 
             if curTempSum + curTempSumFromKey > totalVoteShare then
                 throw("sumRewardPrevious > totalVoteShare or sumRewardCurrent > totalVoteShare - "
                 + pagination.toString() +  " " + (curTempSum + curTempSumFromKey).toString())
             else if rewardUpdateHeightFirstPaginationEntry != rewardUpdateHeight then
                 throw("current rewardUpdateHeight != rewardUpdateHeightFirstPaginationEntry") else
-            ([IntegerEntry(keyTempCurSum, curTempSum + curTempSumFromKey)], [])
+            ([IntegerEntry(kTempCurSum, curTempSum + curTempSumFromKey)], [])
         } else if pagination == 2 then {
-            let curSum = this.getInteger(keyTempCurSum).valueOrElse(0) + curTempSum
-            let rewardUpdateHeightFirstPaginationEntry = this.getInteger(keyRewardUpdateFirstPaginationHeight).valueOrElse(0)
+            let curSum = this.getInteger(kTempCurSum).valueOrElse(0) + curTempSum
+            let rewardUpdateHeightFirstPaginationEntry = this.getInteger(kRewardUpdateFirstPaginationHeight).valueOrElse(0)
 
             if curSum != totalVoteShare then
                 throw("sumRewardPrevious != totalVoteShare or sumRewardCurrent != totalVoteShare")
             else if rewardUpdateHeightFirstPaginationEntry != rewardUpdateHeight then
                 throw("current rewardUpdateHeight != rewardUpdateHeightFirstPaginationEntry") else
-            ([IntegerEntry(keyTempCurSum, curSum)], [])
+            ([IntegerEntry(kTempCurSum, curSum)], [])
         } else {
             throw("Incorrect pagination")
         }
@@ -398,33 +425,31 @@ func updateWeights(currentPools: List[String],currentRewards: List[Int], rewardU
 
     let (sumRewardCurrent, rewardUpdateHeightFirstPaginationEntry) = getSumReward(sumRewardCurrentTemp, pagination)
 
-    let rewardUpdateHeightEntry = if pagination == 2 then [IntegerEntry(keyRewardUpdateHeight,rewardUpdateHeight)] else []
+    let rewardUpdateHeightEntry = if pagination == 2 then [IntegerEntry(kRewardUpdateHeight,rewardUpdateHeight)] else []
 
     if rewardUpdateHeight < height then
         throw("rewardUpdateHeight < height") else
 
     previousRewardEntryNew ++ currentRewardEntryNew ++ heightEntryNewCur ++ sumRewardCurrent ++ rewardUpdateHeightEntry ++ rewardUpdateHeightFirstPaginationEntry
-}
+})
 
 @Callable(i)
-func shutdown() =
-    if !isActive then
-        throw("DApp is already suspended. Cause: " + this.getString(keyCause).valueOrElse("the cause wasn't specified"))
-    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
-        throw("Only admin can call this function")
+func shutdown() = isAdminCall(i).valueOrElse({
+    if !active then
+        throw("DApp is already suspended. Cause: " + this.getString(kCause).valueOrElse("the cause wasn't specified"))
     else
         suspend("Paused by admin")
+})
 
 @Callable(i)
-func activate() =
-    if isActive then
+func activate() = isAdminCall(i).valueOrElse({
+    if active then
         throw("DApp is already active")
-    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
-        throw("Only admin can call this function")
     else [
-        BooleanEntry(keyActive, true),
-        DeleteEntry(keyCause)
+        BooleanEntry(kActive, true),
+        DeleteEntry(kCause)
     ]
+})
 
 @Verifier(tx)
 func verify() = {

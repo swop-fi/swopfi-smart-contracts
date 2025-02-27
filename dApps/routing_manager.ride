@@ -1,15 +1,22 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 6 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
 let kActive = "active"
 let kCause = "shutdown_cause"
+let kPoolInOracle = "pool_"
+let kUserSwopInGov = "_SWOP_amount"
+let kDiscounts = "discounts"
+let kDiscountValues = "discount_values"
 let kRoutingFee = "routing_fee"
 let kAdminPubKey1 = "admin_pub_1"
 let kAdminPubKey2 = "admin_pub_2"
 let kAdminPubKey3 = "admin_pub_3"
 let kMoneyBoxAddress = "money_box_address"
-let kPoolInOracle = "pool_"
+let kGovAddress = "governance_address"
+let kFee = "commission"
+let kMultyAssetBalance = "_balance"
+
 
 let digits8 = 8
 let scale8 = 100000000
@@ -17,9 +24,6 @@ let scale16 = 10000000000000000
 let alpha = 50 # model coefficient alpha = 0.15 with 2 digits
 let alphaDigits = 2
 let beta = 4600000000000000 # model coefficient beta = 0.46 with 16 digits
-
-let commission = 3000 # commission/commissionScaleDelimiter = 0.003
-let commissionScaleDelimiter = 1000000
 
 let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
 
@@ -32,10 +36,10 @@ let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
 let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
 let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
 let moneyBoxAddress = Address(getBase58FromOracle(kMoneyBoxAddress))
+let govAddress = Address(getBase58FromOracle(kGovAddress))
 
 
 let active = this.getBoolean(kActive).valueOrElse(true)
-let routingFee = oracle.getInteger(kRoutingFee).valueOrErrorMessage("routing_fee is empty")
 let feeScale6 = 1000000
 
 func isActive() = if active then unit else throw("DApp is inactive at this moment")
@@ -66,44 +70,59 @@ func invariantCalc(x: Int, y: Int) = {
     )
 }
 
+func calculateFeeDiscount(userAddr: Address) = {
+    let swopAmount = govAddress.getInteger(userAddr.toString() + kUserSwopInGov).valueOrElse(0)
+    let discountValues = oracle.getStringValue(kDiscountValues).split(",")
+    let discounts = oracle.getStringValue(kDiscounts).split(",")
+
+    if swopAmount >= parseIntValue(discountValues[0]) && swopAmount < parseIntValue(discountValues[1]) then
+        feeScale6 - parseIntValue(discounts[0])
+    else if swopAmount >= parseIntValue(discountValues[1]) && swopAmount < parseIntValue(discountValues[2]) then
+        feeScale6 - parseIntValue(discounts[1])
+    else if swopAmount >= parseIntValue(discountValues[2]) && swopAmount < parseIntValue(discountValues[3]) then
+        feeScale6 - parseIntValue(discounts[2])
+    else if swopAmount >= parseIntValue(discountValues[3]) && swopAmount < parseIntValue(discountValues[4]) then
+        feeScale6 - parseIntValue(discounts[3])
+    else if swopAmount >= parseIntValue(discountValues[4]) then
+        feeScale6 - parseIntValue(discounts[4])
+    else
+        feeScale6
+}
+
 # Checking possibility of the route
-func checkPossibility(pmtAmount: Int, minAmountToReceive: Int, exchangers: List[String], exchangersType: List[String],routingAssetsKeys:List[String], args1: List[Int], args2: List[Int]) ={
+func checkPossibility(caller: Address, pmtAmount: Int, minAmountToReceive: Int, exchangers: List[String], exchangersType: List[String],routingAssetsKeys:List[String], args1: List[Int], args2: List[Int]) ={
 
-    let dApp1TokenPay = exchangers[0].addressFromStringValue().getIntegerValue(routingAssetsKeys[0])
-    let dApp1TokenGet = exchangers[0].addressFromStringValue().getIntegerValue(routingAssetsKeys[1])
-    let dApp2TokenPay = exchangers[1].addressFromStringValue().getIntegerValue(routingAssetsKeys[2])
-    let dApp2TokenGet = exchangers[1].addressFromStringValue().getIntegerValue(routingAssetsKeys[3])
-
-    let getFrom1TradeWithFee =
-        if exchangersType[0] == "cpmm" then
-            let getFrom1TradeWithoutFee = fraction(dApp1TokenGet, pmtAmount, pmtAmount + dApp1TokenPay)
-            fraction(getFrom1TradeWithoutFee, commissionScaleDelimiter - commission, commissionScaleDelimiter)
-        else if exchangersType[0] == "flat" then
-            let invariant = invariantCalc(dApp1TokenPay, dApp1TokenGet)
-            let minAmountToReceive1 = args2[0]
-            let invariantNew = invariantCalc(dApp1TokenPay + pmtAmount, dApp1TokenGet - minAmountToReceive1)
-            if invariantNew >= invariant then minAmountToReceive1 else throw("Flat contract: invariantNew < invariant")
+    let feeDiscount = calculateFeeDiscount(caller)
+    func checkTrade(amountGet: Int, i: Int) = {
+        if i > exchangers.size() - 1 then 
+            amountGet 
         else
-            throw("Incorrect exchange type")
-
-    let getFrom2TradeWithFee =
-        if exchangersType[1] == "cpmm" then
-            let getFrom2TradeWithoutFee = fraction(dApp2TokenGet, getFrom1TradeWithFee, getFrom1TradeWithFee + dApp2TokenPay)
-            fraction(getFrom2TradeWithoutFee, commissionScaleDelimiter - commission, commissionScaleDelimiter)
-        else if exchangersType[1] == "flat" then
-            let invariant = invariantCalc(dApp2TokenPay,dApp2TokenGet)
-            let minAmountToReceive2 = args2[1]
-            let invariantNew =  invariantCalc(dApp2TokenPay + getFrom1TradeWithFee,dApp2TokenGet - minAmountToReceive2)
-            if invariantNew >= invariant then minAmountToReceive2 else throw("Flat contract: invariantNew < invariant")
-        else
-            throw("Incorrect exchange type")
-    getFrom2TradeWithFee >= minAmountToReceive
+            if exchangersType[i] == "curveMultyFlat" then
+                strict inv = invoke(exchangers[i].addressFromStringValue(), "getDy", [routingAssetsKeys[i * 2], routingAssetsKeys[i * 2 + 1], amountGet, caller.toString()], []).exactAs[(Int, Int)]
+                inv._1
+            else
+                let dApp1TokenPay = exchangers[i].addressFromStringValue().getIntegerValue(routingAssetsKeys[i * 2])
+                let dApp1TokenGet = exchangers[i].addressFromStringValue().getIntegerValue(routingAssetsKeys[i * 2 + 1])
+                if exchangersType[i] == "cpmm" then
+                    let fee = exchangers[i].addressFromStringValue().getIntegerValue(kFee)
+                    let getFromTradeWithoutFee = fraction(dApp1TokenGet, amountGet, amountGet + dApp1TokenPay)
+                    fraction(getFromTradeWithoutFee, feeScale6 - fee.fraction(feeDiscount, feeScale6), feeScale6)
+                else if exchangersType[i] == "flat" then
+                    let invariant = invariantCalc(dApp1TokenPay, dApp1TokenGet)
+                    let minAmountToReceiveTrade = args2[i]
+                    let invariantNew = invariantCalc(dApp1TokenPay + amountGet, dApp1TokenGet - minAmountToReceiveTrade)
+                    if invariantNew >= invariant then minAmountToReceiveTrade else throw("Flat contract: invariantNew < invariant")
+                else
+                    throw("Incorrect exchange type")
+    }
+    let amount = FOLD<3>([0,1,2], pmtAmount, checkTrade)
+    amount >= minAmountToReceive
 }
 
 # exchangers — exchangers list(2 exchangers for now)
 # exchangersType — exchnagers types list (flat/cpmm) in exchangers order
 # args1, args2 — args pairs for invoke function exchange in exchangers order
-# routingAssetsKeys - assets keys pairs for each exchange.
+# routingAssetsKeys - assets keys pairs for each exchange or Assets ids in case multy curve flat
 # Example if pay in asset B of ex1 and want to get asset B of ex2 than list will be
 # [B_asset_balance, A_asset_balance, A_asset_balance, B_asset_balance]
 # minAmountToReceive — minimal amount to recive with routing fee
@@ -111,7 +130,7 @@ func checkPossibility(pmtAmount: Int, minAmountToReceive: Int, exchangers: List[
 func routingTrade(exchangers: List[String], exchangersType: List[String], args1: List[Int], args2: List[Int], routingAssetsKeys:List[String], minAmountToReceive: Int) = isActive().valueOrElse({
     let (pmtAmount,pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
 
-    if !checkPossibility(pmtAmount,minAmountToReceive,exchangers,exchangersType,routingAssetsKeys,args1,args2) then
+    if !checkPossibility(i.caller, pmtAmount,minAmountToReceive,exchangers,exchangersType,routingAssetsKeys,args1,args2) then
         throw("Check transaction possibilty: declined")
     else if !oracle.getString(kPoolInOracle + exchangers[0]).isDefined() || !oracle.getString(kPoolInOracle + exchangers[1]).isDefined() then
         throw("Pool is not in oracle")
@@ -126,32 +145,32 @@ func routingTrade(exchangers: List[String], exchangersType: List[String], args1:
                     (assetsIdSend, amountsWithFee)
             if (exchangeCounter >= 0  &&  exchangeCounter < routingSize) == true then
                 let exchangerAddress = exchanger.addressFromStringValue()
-
-                strict inv =
+                strict inv = 
                     if exchangersType[exchangeCounter] == "cpmm" then
-                        invoke(exchangerAddress, "exchange", [args1[exchangeCounter]], [AttachedPayment(pmtAssetIdRout, pmtAmountRout)])
+                        invoke(exchangerAddress, "callFunction", ["exchange", [args1[exchangeCounter].toString()]], [AttachedPayment(pmtAssetIdRout, pmtAmountRout)])
                     else if exchangersType[exchangeCounter] == "flat" then
                         invoke(exchangerAddress, "exchange", [args1[exchangeCounter], args2[exchangeCounter]], [AttachedPayment(pmtAssetIdRout, pmtAmountRout)])
+                    else if exchangersType[exchangeCounter] == "curveMultyFlat" then
+                        invoke(exchangerAddress, "exchange", [routingAssetsKeys[exchangeCounter * 2 + 1], args2[exchangeCounter]], [AttachedPayment(pmtAssetIdRout, pmtAmountRout)])
                     else
                         throw("Incorrect exchange type")
-
-                match inv {
-                    case inv : (Int, ByteVector) =>
-                    (
-                        let (amountWithFee, assetIdSend) = inv
-                        (exchangeCounter+1, amountWithFee, assetIdSend)
-                    )
+                let (amountWithFee, assetIdSend) = match (inv) {
+                    case inv:List[Any] => 
+                        match (inv[0], inv[1]) {
+                            case r:(Int, ByteVector|Unit) => (r._1, r._2)
+                            case _ => throw("Incorrect invoke result: expected amountWithFee and assetsIdSend")
+                        } 
+                    case inv : (Int, ByteVector|Unit) => (inv._1, inv._2)
                     case _ => throw("Incorrect invoke result: expected amountWithFee and assetsIdSend")
                 }
+                (exchangeCounter + 1, amountWithFee, assetIdSend)
             else
                 accumulated
         }
-        let (exchangeCounter, amountWithoutFee, assetIdSend) = FOLD<3>(exchangers, (0, 0, base58''), exchangeFold)
-        let amountWithFee = fraction(amountWithoutFee, feeScale6 - routingFee, feeScale6)
-        if exchangeCounter == routingSize && amountWithFee >= minAmountToReceive then
+        let (exchangeCounter, amount, assetIdSend) = FOLD<3>(exchangers, (0, 0, base58''), exchangeFold)
+        if exchangeCounter == routingSize && amount >= minAmountToReceive then
             [
-                ScriptTransfer(i.caller, amountWithFee, assetIdSend),
-                ScriptTransfer(moneyBoxAddress, amountWithoutFee - amountWithFee, assetIdSend)
+                ScriptTransfer(i.caller, amount, assetIdSend)
             ]
         else
             throw("routing != routingSize or amountToRecieve < minAmountToReceive")

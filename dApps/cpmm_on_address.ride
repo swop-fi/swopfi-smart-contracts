@@ -1,0 +1,180 @@
+{-# STDLIB_VERSION 8 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+let kActive = "active"
+let kActiveGlob = "active_all_contracts"
+let kCause = "shutdown_cause"
+let kLeasingPool = "leasing_address"
+let kLeasingAmount = "leasing_amount"
+let kLeasingId = "leasing_id"
+let kAdminPubKey1 = "admin_pub_1"
+let kAdminPubKey2 = "admin_pub_2"
+let kAdminPubKey3 = "admin_pub_3"
+let kAdminInvokePubKey = "admin_invoke_pub"
+let kCpmmContract = "cpmm_contract"
+let kStakingAssets = "staking_assets"
+let kShareAssetId = "share_asset_id"
+let kStakingAssetParams = "_staking_asset_params" # with asset_id prefix string with stake_address,stake_func,unstake_func,stake_key_pattern
+
+let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
+
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+    case string: String => string.fromBase58String()
+    case nothing => throw(key + "is empty")
+}
+
+let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
+let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
+let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
+let adminPubKeyInvoke = getBase58FromOracle(kAdminInvokePubKey)
+let cpmmContract = Address(getBase58FromOracle(kCpmmContract))
+let stakingAssets = oracle.getStringValue(kStakingAssets)
+
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+let active = this.getBoolean(kActive).valueOrElse(true)
+
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
+func isGlobalCaller(caller:Address) = if caller == cpmmContract then unit else throw("Only global Contract can invoke this function")
+
+func isAdminCall(callerPubKey: ByteVector) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(callerPubKey) then unit
+        else throw("Only admin can call this function")
+
+func suspend(cause: String) = [
+    BooleanEntry(kActive, false),
+    StringEntry(kCause, cause)
+]
+
+func calcStakingParams(stake: Boolean, amount:Int, assetId: ByteVector) = {
+    let stakingParams = oracle.getStringValue(assetId.toBase58String() + kStakingAssetParams).split(",")
+    let (stakingAddress, stakeFunc, unstakeFunc) = (stakingParams[0], stakingParams[1], stakingParams[2])
+    if stake then
+        (stakeFunc, stakingAddress.addressFromStringValue(), [], [AttachedPayment(assetId, amount)])
+    else
+        (unstakeFunc, stakingAddress.addressFromStringValue(), [amount], [])
+}   
+
+func collectPayments(acc: (List[Int], List[ByteVector]), payment:AttachedPayment) = {
+    let (paymentAmounts, paymentAssetIds) = acc
+    (paymentAmounts :+ payment.amount, paymentAssetIds :+ if payment.assetId == unit then base58'' else payment.assetId)
+}
+
+func collectState(result: List[IntegerEntry | StringEntry | BooleanEntry | BinaryEntry | ScriptTransfer | Reissue | Burn | Issue], source: Any) = {
+    match source {
+        case e: IntegerEntry | StringEntry | BooleanEntry | BinaryEntry | ScriptTransfer | Reissue | Burn | Issue  => result :+ e
+        case _  => result
+    }
+}
+func collectData(result: List[Int | String | Boolean | ByteVector | Unit], source: Any) = {
+    match source {
+    case v: String  => result :+ v
+    case v: Int     => result :+ v
+    case v: Boolean => result :+ v
+    case v: ByteVector => result :+ v
+    case v: Unit => result :+ v
+    case _          => throw()
+    }
+}
+
+func callCommon(funcName: String, caller: ByteVector, args: List[String], payments: List[AttachedPayment]) = isActive().valueOrElse({
+    let (paymentAmounts, paymentAssetIds) = FOLD<10>(payments, ([],[]), collectPayments)
+    let lockPayment =
+        if funcName == "replenishWithTwoTokens" && payments.size() == 3 then [payments[2]] else
+        if funcName == "replenishWithOneToken" && payments.size() == 2 then [payments[1]] else
+        []
+    strict (actions, data) = cpmmContract.reentrantInvoke(funcName, [caller, args, paymentAmounts, paymentAssetIds], lockPayment).exactAs[(List[Any], List[Any])]
+    let mappedData = FOLD<10>(data, [], collectData)
+    let mappedActions = FOLD<15>(actions, [], collectState)
+    (mappedActions, mappedData)
+})
+
+@Callable(i)
+func callFunction(funcName: String, args: List[String]) = callCommon(funcName, i.caller.bytes, args, i.payments)
+
+@Callable(i)
+func shutdown() =
+    isAdminCall(i.callerPublicKey).valueOrElse({
+        if !active then
+            throw("DApp is already suspended. Cause: " + this.getString(kCause).valueOrElse("the cause wasn't specified"))
+        else
+            suspend("Paused by admin")
+    })
+
+@Callable(i)
+func activate() =
+    isAdminCall(i.callerPublicKey).valueOrElse({
+        if active then
+            throw("DApp is already active")
+        else [
+            BooleanEntry(kActive, true),
+            DeleteEntry(kCause)
+        ]
+    })
+
+@Callable(i)
+func stakeUnstake(stake:Boolean, amount: Int, assetIdString:String) =
+isGlobalCaller(i.caller).valueOrElse({
+        isActive().valueOrElse({
+            if assetIdString == "WAVES" then
+                let pool = oracle.getString(kLeasingPool).valueOrErrorMessage("No leasing pool in oracle").addressFromStringValue()
+                let leasingId = this.getBinary(kLeasingId)
+                let leasingAmount = this.getInteger(kLeasingAmount).valueOrElse(0)
+                let newLeaseAmount = if stake then leasingAmount + amount else leasingAmount - amount
+                let baseEtry = if newLeaseAmount == 0 then  [ DeleteEntry(kLeasingId) ] else
+                    let newLease = Lease(pool, newLeaseAmount)
+                    let newLeaseId = newLease.calculateLeaseId()
+                    [ newLease, BinaryEntry(kLeasingId, newLeaseId) ]
+
+                [ IntegerEntry(kLeasingAmount, newLeaseAmount) ] ++
+                match (leasingId) {
+                    case lId: ByteVector =>  [ LeaseCancel(lId) ] ++ baseEtry
+                    case _ => baseEtry
+                }
+            else
+                let (call, addr, params, payments) = calcStakingParams(stake, amount, assetIdString.fromBase58String())
+                strict inv = invoke(addr, call, params, payments)
+                []
+    })
+})
+
+@Callable(i)
+func claimStakingReward(assetId: String) = isGlobalCaller(i.caller).valueOrElse({
+    let stakingParams = oracle.getStringValue(assetId + kStakingAssetParams).split(",")
+    let (stakingAddress, claimFunction) = (stakingParams[0].addressFromStringValue(), stakingParams[4])
+    strict inv = if claimFunction != "" then stakingAddress.invoke(claimFunction, nil, nil) else 0
+    []
+})
+
+@Callable(i)
+func reissueShareToken(amount: Int) =
+    isGlobalCaller(i.caller).valueOrElse({
+        isActive().valueOrElse({
+            let shareAssetId = this.getStringValue(kShareAssetId).fromBase58String()
+            [
+                Reissue(shareAssetId, amount, true),
+                ScriptTransfer(i.caller, amount, shareAssetId)
+            ]
+        })
+    })
+
+@Verifier(tx)
+func verify() = {
+    let multiSignedByAdmins = {
+        let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
+        let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
+        let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
+        adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
+    }
+    multiSignedByAdmins
+}
+
+#!!!!!!!!!!!!!!!!!DEPRECATED FUNCTIONS START!!!!!!!!!!!!!!!!!
+@Callable(i)
+func replenishWithTwoTokens(slippageTolerance: Int) = callCommon("replenishWithTwoTokens", i.caller.bytes, ["false", "0"], i.payments)
+
+@Callable(i)
+func withdraw() = callCommon("withdraw", i.caller.bytes, ["0"], i.payments)
+
+@Callable(i)
+func exchange(minAmountToReceive: Int) = callCommon("exchange", i.caller.bytes, [minAmountToReceive.toString()], i.payments)
+#!!!!!!!!!!!!!!!!!DEPRECATED FUNCTIONS END!!!!!!!!!!!!!!!!!

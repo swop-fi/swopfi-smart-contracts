@@ -1,8 +1,9 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 6 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
 let keyActive = "active"
+let kActiveGlob = "active_all_contracts"
 let keyAdminPubKey1 = "admin_pub_1"
 let keyAdminPubKey2 = "admin_pub_2"
 let keyAdminPubKey3 = "admin_pub_3"
@@ -25,7 +26,7 @@ let keySwopfiTicketsAmount = "_tickets_swopfi_members"
 let keyCampaignTokensAmount = "_tokens_access_list"
 let keyTokensPerAllocation = "_tokens_per_allocation"
 let keyTicketLastNumber = "_ticket_last_number"
-let keyGovernanceStaked = "_SWOP_amount"
+let keyGovernanceStaked = "_GSwop_amount"
 let keyUserRefId = "_ref_id"
 let keyVerifyHash = "_verify_hash"
 let keyDuration = "_duration"
@@ -65,6 +66,7 @@ let commissionWallet = Address(base58'3PGYafJ2GuqPckmZNywet8moiPnBHz51Xdg')
 let stakingUSDNAddress = Address(base58'3PNikM6yp4NqcSU8guxQtmR5onr2D4e8yTJ')
 let USDN = base58'DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p'
 let adminPubKeyStaking = base58'Czn4yoAuUZCVCLJDRfskn8URfkwpknwBTZDbs1wFrY7h'
+let WAVES_XTN_EX = Address(base58'3PHaNgomBkrvEL2QnuJarQVJa71wjw9qiqG')
 
 let maxAllocationsAmount = 2
 let activeLaunchpadId = this.getIntegerValue(keyLaunchpadActiveId).valueOrElse(-1)
@@ -89,7 +91,8 @@ func getLaunchpadNextId() = getInteger(this, keyLaunchpadNextId).valueOrElse(1)
 
 func stakedUsdnAmount() = stakingUSDNAddress.getInteger("rpd_balance_" + USDN.toBase58String() + "_" + this.toString()).valueOrElse(0)
 let active = this.getBoolean(keyActive).valueOrElse(true)
-func isActive() = if active then unit else throw("DApp is inactive at this moment")
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
 func isAdminCall(i:Invocation) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then unit
         else throw("Only admin can call this function")  
 
@@ -101,6 +104,22 @@ func getAssetInfoFromString(assetStr: String) = {
         let info = assetInfo(id).valueOrErrorMessage("Asset " + stringId + " doesn't exist")
         (id, stringId, info.name, info.decimals)
     }
+}
+
+func buyInWaves(launchpadId: Int, ticketsAmount: Int, type: Int) = {
+    let (buyAssetId, buyAssetStrId, buyAssetName, buyAssetDecimals) = getAssetInfoFromString(this.getString(launchpadId.toString() + keyBuyToken).value())
+    let tokenPrice = this.getIntegerValue(launchpadId.toString() + keyPricePerToken)
+    let tokensPerTicket = this.getIntegerValue(launchpadId.toString() + keyTokensPerTicket)
+    let (tokenId, tokenStrAssetId, tokenAssetName, tokenDecimals) = getAssetInfoFromString(this.getStringValue(launchpadId.toString() + keyAssetId))
+    let ticketPrice = fraction(tokensPerTicket, tokenPrice, pow(10,0,tokenDecimals,0,0,DOWN))
+    let commissionPerTicket = 
+        if type == 1 then 
+            fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyComission), 100) 
+        else
+            fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyHighCompetitionComission), 100)    
+    let amntToGetTickets = ticketsAmount * (ticketPrice + commissionPerTicket)
+    strict amntToPay = WAVES_XTN_EX.invoke("callFunction", ["howManyYouPayREADONLY", [amntToGetTickets.toString(), buyAssetId]], []).exactAs[List[Any]][0].exactAs[Int]
+    amntToPay.fraction(101, 100)
 }
 
 @Callable(i)
@@ -190,7 +209,11 @@ func init(
 
 @Callable(i)
 func commitSwopfiSale(launchpadId: Int, refId: String) = isActive().valueOrElse({
-    let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
+    let tokenPrice = this.getIntegerValue(launchpadId.toString() + keyPricePerToken)
+    let tokensPerTicket = this.getIntegerValue(launchpadId.toString() + keyTokensPerTicket)
+    let (tokenId, tokenStrAssetId, tokenAssetName, tokenDecimals) = getAssetInfoFromString(this.getStringValue(launchpadId.toString() + keyAssetId))
+    let ticketPrice = fraction(tokensPerTicket, tokenPrice, pow(10,0,tokenDecimals,0,0,DOWN))
+    let commissionPerTicket = fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyComission), 100)
     let (buyAssetId, buyAssetStrId, buyAssetName, buyAssetDecimals) = getAssetInfoFromString(this.getString(launchpadId.toString() + keyBuyToken).value())
     let stakedSwops = governance.getInteger(i.caller.toString() + keyGovernanceStaked).valueOrElse(0)
     let allowedTicketsAmountAll = stakedSwops / this.getIntegerValue(launchpadId.toString() + keySwopPerTicket)
@@ -199,6 +222,20 @@ func commitSwopfiSale(launchpadId: Int, refId: String) = isActive().valueOrElse(
     let startHeight = this.getInteger(launchpadId.toString() + keyStartHeight).value()
     let duration = this.getInteger(launchpadId.toString() + keyDuration).value()
     let freezeAdditionalToken = this.getBoolean(launchpadId.toString() + keyFreezeAdditionalToken).valueOrElse(false)
+
+    let (pmtAmount, pmtAssetId, changeEntry) = 
+        if i.payments[0].assetId == unit then 
+            strict amntToGet = WAVES_XTN_EX.invoke("callFunction", ["howManyYouGetREADONLY", [i.payments[0].amount.toString(), base58'']], []).exactAs[List[Any]][0].exactAs[Int]
+            let ticketsAmount = amntToGet / (ticketPrice + commissionPerTicket)
+            if ticketsAmount == 0 then throw("Not enought WAVES to buy tickets") else
+            let amntToGetTickets = ticketsAmount * (ticketPrice + commissionPerTicket)
+            strict amntToPay = WAVES_XTN_EX.invoke("callFunction", ["howManyYouPayREADONLY", [amntToGetTickets.toString(), buyAssetId]], []).exactAs[List[Any]][0].exactAs[Int]
+            strict ex = WAVES_XTN_EX.invoke("callFunction", ["exchange", [amntToGetTickets.toString()]], [AttachedPayment(unit, amntToPay)])
+            let change = i.payments[0].amount - amntToPay
+            let cEntry = if change > 0 then  [ScriptTransfer(i.caller, change, i.payments[0].assetId)] else []
+            (amntToGetTickets, buyAssetId, cEntry)
+        else
+            (i.payments[0].amount, i.payments[0].assetId, [])
 
     if activeLaunchpadId != launchpadId then
         throw("There is no active launchpad or this launchpad is ended")
@@ -214,11 +251,6 @@ func commitSwopfiSale(launchpadId: Int, refId: String) = isActive().valueOrElse(
     else if allowedTicketsAmountAll <= 0 || allowedTicketsAmount <= 0 then
         throw("Not enought SWOP in staking to buy tickets")
     else
-        let tokenPrice = this.getIntegerValue(launchpadId.toString() + keyPricePerToken)
-        let tokensPerTicket = this.getIntegerValue(launchpadId.toString() + keyTokensPerTicket)
-        let (tokenId, tokenStrAssetId, tokenAssetName, tokenDecimals) = getAssetInfoFromString(this.getStringValue(launchpadId.toString() + keyAssetId))
-        let ticketPrice = fraction(tokensPerTicket, tokenPrice, pow(10,0,tokenDecimals,0,0,DOWN))
-        let commissionPerTicket = fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyComission), 100)
         let buyTicketAmount = pmtAmount / (ticketPrice + commissionPerTicket)
         let allowedBuyTicketAmount = min([buyTicketAmount, allowedTicketsAmount])
         let allowedBuyPriceWithComission = allowedBuyTicketAmount * (ticketPrice + commissionPerTicket)
@@ -251,7 +283,7 @@ func commitSwopfiSale(launchpadId: Int, refId: String) = isActive().valueOrElse(
                 IntegerEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserBoughtTicketsAmount, boughtTicketsAmount + allowedBuyTicketAmount),
                 IntegerEntry(launchpadId.toString() + keyTicketLastNumber, lastBoughtTicketNumber + allowedBuyTicketAmount),
                 StringEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserTickets, newUserBoughtTicketsNumbers)
-            ] ++ freezeAdditionalEntry
+            ] ++ freezeAdditionalEntry ++ changeEntry
             if !this.getString(i.caller.toString() + "_" + launchpadId.toString() + keyUserRefId).isDefined() then
                 baseEntry ++
                 [StringEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserRefId, refId)]
@@ -309,12 +341,30 @@ func commitAccessListSale(launchpadId: Int, refId: String) = isActive().valueOrE
 
 @Callable(i)
 func commitHighCompetitionSale(launchpadId: Int, refId: String) = isActive().valueOrElse({
-    let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
     let (buyAssetId, buyAssetStrId, buyAssetName, buyAssetDecimals) = getAssetInfoFromString(this.getString(launchpadId.toString() + keyBuyToken).value())
     let startHeight = this.getInteger(launchpadId.toString() + keyStartHeight).value()
     let duration = this.getInteger(launchpadId.toString() + keyDuration).value()
     let boughtHCTicketsAmount = this.getInteger(i.caller.toString() + "_" + launchpadId.toString() + keyUserHCBoughtTicketsAmount).valueOrElse(0)
     let highCompetitionSale = this.getBoolean(launchpadId.toString() + keyHighCompetitionSale).valueOrElse(false)
+    let tokenPrice = this.getIntegerValue(launchpadId.toString() + keyPricePerToken)
+    let tokensPerTicket = this.getIntegerValue(launchpadId.toString() + keyTokensPerTicket)
+    let (tokenId, tokenStrAssetId, tokenAssetName, tokenDecimals) = getAssetInfoFromString(this.getStringValue(launchpadId.toString() + keyAssetId))
+    let ticketPrice = fraction(tokensPerTicket, tokenPrice, pow(10,0,tokenDecimals,0,0,DOWN))
+    let commissionPerTicket = fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyHighCompetitionComission), 100)
+
+    let (pmtAmount, pmtAssetId, changeEntry) = 
+        if i.payments[0].assetId == unit then 
+            strict amntToGet = WAVES_XTN_EX.invoke("callFunction", ["howManyYouGetREADONLY", [i.payments[0].amount.toString(), base58'']], []).exactAs[List[Any]][0].exactAs[Int]
+            let ticketsAmount = amntToGet / (ticketPrice + commissionPerTicket)
+            if ticketsAmount == 0 then throw("Not enought WAVES to buy tickets") else
+            let amntToGetTickets = ticketsAmount * (ticketPrice + commissionPerTicket)
+            strict amntToPay = WAVES_XTN_EX.invoke("callFunction", ["howManyYouPayREADONLY", [amntToGetTickets.toString(), buyAssetId]], []).exactAs[List[Any]][0].exactAs[Int]
+            strict ex = WAVES_XTN_EX.invoke("callFunction", ["exchange", [amntToGetTickets.toString()]], [AttachedPayment(unit, amntToPay)])
+            let change = i.payments[0].amount - amntToPay
+            let cEntry = if change > 0 then  [ScriptTransfer(i.caller, change, i.payments[0].assetId)] else []
+            (amntToGetTickets, buyAssetId, cEntry)
+        else
+            (i.payments[0].amount, i.payments[0].assetId, [])
 
     if activeLaunchpadId != launchpadId then
         throw("There is no active launchpad or this launchpad is ended")
@@ -327,11 +377,7 @@ func commitHighCompetitionSale(launchpadId: Int, refId: String) = isActive().val
     else if i.payments.size() != 1 || pmtAssetId != buyAssetId then
         throw("One attached payment in " + buyAssetName + " expected")
     else
-        let tokenPrice = this.getIntegerValue(launchpadId.toString() + keyPricePerToken)
-        let tokensPerTicket = this.getIntegerValue(launchpadId.toString() + keyTokensPerTicket)
-        let (tokenId, tokenStrAssetId, tokenAssetName, tokenDecimals) = getAssetInfoFromString(this.getStringValue(launchpadId.toString() + keyAssetId))
-        let ticketPrice = fraction(tokensPerTicket, tokenPrice, pow(10,0,tokenDecimals,0,0,DOWN))
-        let commissionPerTicket = fraction(ticketPrice, this.getIntegerValue(launchpadId.toString() + keyHighCompetitionComission), 100)
+        
         let buyTicketAmount = pmtAmount / (ticketPrice + commissionPerTicket)
         let buyPriceWithComission = buyTicketAmount * (ticketPrice + commissionPerTicket)
         let change = pmtAmount - buyPriceWithComission
@@ -351,7 +397,7 @@ func commitHighCompetitionSale(launchpadId: Int, refId: String) = isActive().val
                 IntegerEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserHCBoughtTicketsAmount, boughtHCTicketsAmount + buyTicketAmount),
                 IntegerEntry(launchpadId.toString() + keyHCTicketLastNumber, lastBoughtTicketNumber + buyTicketAmount),
                 StringEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserHCTickets, newUserBoughtTicketsNumbers)
-            ]
+            ] ++ changeEntry
             if !this.getString(i.caller.toString() + "_" + launchpadId.toString() + keyUserRefId).isDefined() then
                 baseEntry ++
                 [StringEntry(i.caller.toString() + "_" + launchpadId.toString() + keyUserRefId, refId)]

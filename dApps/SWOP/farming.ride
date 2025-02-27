@@ -1,107 +1,123 @@
-{-# STDLIB_VERSION 4 #-}
+{-# STDLIB_VERSION 6 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let adminPubKey1 = base58'DXDY2itiEcYBtGkVLnkpHtDFyWQUkoLJz79uJ7ECbMrA'
-let adminPubKey2 = base58'E6Wa1SGoktYcjHjsKrvjMiqJY3SWmGKcD8Q5L8kxSPS7'
-let adminPubKey3 = base58'AZmWJtuy4GeVrMmJH4hfFBRApe1StvhJSk4jcbT6bArQ'
+let kActive = "active"
+let kActiveGlob = "active_all_contracts"
+let kDeprecatedPool = "deprecated_"
+let kCause = "shutdown_cause"
+let kRewardPoolFractionCurrent = "_current_pool_fraction_reward"
+let kRewardPoolFractionPrevious = "_previous_pool_fraction_reward"
+let kHeightPoolFraction = "_pool_reward_update_height"
+let kRewardUpdateHeight = "reward_update_height"
 
-let keyShareTokensLocked = "_total_share_tokens_locked" # with prefix(pool identity) get info about total share locked in this pool
-let kShareLimit = "share_limit_on_first_harvest"
-let keyActive = "active"
-let keyCause = "shutdown_cause"
-let keyRewardPoolFractionCurrent = "_current_pool_fraction_reward"
-let keyRewardPoolFractionPrevious = "_previous_pool_fraction_reward"
-let keyHeightPoolFraction = "_pool_reward_update_height"
-let keyTotalRewardPerBlockCurrent = "total_reward_per_block_current"
-let keyTotalRewardPerBlockPrevious = "total_reward_per_block_previous"
-let keyRewardUpdateHeight = "reward_update_height"
-let keyLastInterest = "_last_interest"
-let keyLastInterestHeight = "_last_interest_height"
-let keyUserShareTokensLocked = "_share_tokens_locked"
-let keyUserLastInterest = "_last_interest"
-let keySWOPid = "SWOP_id"
-let keyUserSWOPClaimedAmount = "_SWOP_claimed_amount"
-let keyUserSWOPLastClaimedAmount = "_SWOP_last_claimed_amount"
-let keyAvailableSWOP = "_available_SWOP"
-let keyFarmingStartHeight = "farming_start_height"
-let keyAPY = "apy"
-let kPreviousTotalVoteSWOP = "previous_total_vote_SWOP"
-let keySwopYearEmission = "swop_year_emission"
-let keyBalancecpmmA = "A_asset_balance"
-let keyBalancecpmmB = "B_asset_balance"
-let kHarvestPoolActiveVoteStrucVoting = "_harvest_pool_activeVote_struc"
-let kHarvestUserPoolActiveVoteStrucVoting = "_harvest_user_pool_activeVote_struc"
-let keyLimitShareFirstHarvest = "share_limit_on_first_harvest"
-let keyAssetIdA = "A_asset_id"
-let keyAssetIdB = "B_asset_id"
-let keyFirstHarvestHeight = "first_harvest_height"
-let keyfirstHarvestCpmm = "first_harvest"
-let keyTempPrevSum = "sum_reward_previous"
-let keyTempCurSum = "sum_reward_current"
-let governanceAddress = Address(base58'3PLHVWCqA9DJPDbadUofTohnCULLauiDWhS')
-let wallet = Address(base58'3P6J84oH51DzY6xk2mT5TheXRbrCwBMxonp')
-let votingAddress = Address(base58'3PQZWxShKGRgBN1qoJw6B4s9YWS9FneZTPg')
-let adminIncreaseInterestAddress = Address(base58'3PPupsBVHgDXaRhyMbkTxminzAotp8AMsr6')
-let oneWeekInBlock = 10106 # 1440*7*60/59.84 where 59.84 - real block duration in seconds
-let totalVoteShare = 10000000000
-let scaleValue1 = 10
-let scaleValue3 = 1000
-let scaleValue5 = 100000
-let scaleValue6 = 1000000
-let scaleValue8 = 100000000
-let scaleValue11 = 100000000000
+let kUserShareTokensStaked = "_share_tokens_locked" # with {POOLADDR}_{USERADDR} prefix get info about user sharetokens staked in this pool
+let kUserShareTokensLocked = "_share_tokens_blocked" # with {POOLADDR}_{USERADDR} prefix get info about user sharetokens locked in this pool
+let kUserShareTokensLockedType = "_share_tokens_blocked_type" # with {POOLADDR}_{USERADDR} prefix get info about sharetokens locked type in this pool
+let kUserShareTokensLockedHeight = "_share_tokens_blocked_height" # with {POOLADDR}_{USERADDR} prefix get info about sharetokens locked height in this pool
+let kUserShareTokensVirtual = "_share_tokens_virtual" # with {POOLADDR}_{USERADDR} prefix get info about virtual user sharetokens locked in this pool
+let kShareTotalShareTokens = "_total_share_tokens_locked" # with {POOLADDR} prefix get info about total sharetokens staked in this pool
+let kShareTokensVirtual = "_total_share_tokens_virtual" # with {POOLADDR} prefix get info about total sharetokens virtual in this pool
+let kLockParams = "_lock_params" # with {Type} prefix info about lock params seperated by "_" 0 - blockAmount, 1 - lock coef float * 1000
+let kLockWavesFee = "lock_waves_fee"
+let kPoolBoostCoef = "_boost_coef" # with {POOLADDR} prefix get boosting coef of pool
 
-func strAssetIdA(pool:Address)= pool.getStringValue(keyAssetIdA)
-func strAssetIdB(pool:Address) = pool.getStringValue(keyAssetIdB)
-func assetIdA(pool:Address) = if strAssetIdA(pool) == "WAVES" then unit else strAssetIdA(pool).fromBase58String()
-func assetIdB(pool:Address) = if strAssetIdB(pool) == "WAVES" then unit else strAssetIdB(pool).fromBase58String()
-let kBasePeriod = "base_period"
-let kPeriodLength = "period_length"
-let kStartHeight = "start_height"
+let kFarmLastInterest = "_last_interest" # with {POOLADDR} prefix get info about farming last interest in this pool
+let kFarmUserLastInterest = "_last_interest" # with {POOLADDR}_{USERADDR} prefix get info about farming interest of user in this pool
+let kBoostLastInterest = "_last_interest_b" # with {POOLADDR} prefix get info about boosting interest in this pool
+let kBoostUserLastInterest = "_last_interest_u_b" # with {POOLADDR}_{USERADDR} prefix get info about boosting interest of user in this pool
+let kLastInterestHeight = "_last_interest_height" # with {POOLADDR} prefix get info about when updated last interest in this pool
+let kSWOPid = "SWOP_id"
+let kAvailableSWOP = "_available_SWOP"
+let kHarvestPoolVote = "_harvest_pool_vote_gSWOP"
+let kPoolVote = "_pool_vote_gSWOP"
+let kUserPoolVote = "_user_vote_gSWOP"
+#####Deprecated keys#######
+let kPoolStruc = "_pool_struc"
+let kUserPoolStruc = "_user_pool_struc"
+###########################
+let kHarvestUserPoolVote = "_harvest_user_pool_vote_gSWOP"
 let kFirstHarvestHeight = "first_harvest_height"
-let kDurationFullVotePower = "duration_full_vote_power"
-let kMinVotePower = "min_vote_power"
+let kShareLimitFH = "share_limit_on_first_harvest"
+let kStratBFarmInterest = "_strat_b_farm_interest"
+let kPoolInOracle = "pool_"
 
-let basePeriod = votingAddress.getInteger(kBasePeriod).valueOrErrorMessage("Empty kBasePeriod") # 0
-let startHeight = votingAddress.getInteger(kStartHeight).valueOrErrorMessage("Empty kStartHeight")
-let periodLength =  votingAddress.getInteger(kPeriodLength).valueOrErrorMessage("Empty kPeriodLength")  # 10102
-let durationFullVotePower = votingAddress.getInteger(kDurationFullVotePower).valueOrErrorMessage("Empty kDurationFullVotePower") # 1443, 1 days in block after voting start
-let minVotePower = votingAddress.getInteger(kMinVotePower).valueOrErrorMessage("Empty kMinVotePower") # 10000000, minVoteCoeff/scale8 between 0 and 1 - voting power if vote at the end of voting period
+let kCpmmContract = "cpmm_contract"
+let kAdminPubKey1 = "admin_pub_1"
+let kAdminPubKey2 = "admin_pub_2"
+let kAdminPubKey3 = "admin_pub_3"
+let kAdminInvokePubKey = "admin_invoke_pub"
+let kMoneyBoxAddress = "money_box_address"
+let kTeamBoxAddress = "team_box_address"
+let kVotingAddress = "voting_address"
+let kGovAddress = "governance_address"
+let kLPFarmingAddress = "lp_farming"
+let kFarmingTreasureAddr = "farming_treasure"
+let kAxlyFarming = "axly_farming"
+let kAxlyLpId = "axly_lp_id"
 
-let isActive = this.getBooleanValue(keyActive)
+let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
+let totalVoteShare = 10000000000
+let scaleValue8 = 100000000
+let scaleValue6 = 1000000
+let lockBoostCoefScale = 1000
+let defPoolBoostCoef = 500
+let startEmissionH = 2976848 # Start Swop Emission height
+let swopYearEmission = 100000000000000 # 1 mln * 10^8(swop decimals)
+let blocksPerYear = 526330 # 1442 * 365
+let teamFee = 25 # 25% of farm treasure to team
 
-let currPeriod = basePeriod + (height-startHeight)/periodLength
-func getLimitToken(pool:Address) = pool.getIntegerValue(keyLimitShareFirstHarvest).valueOrElse(0)
 
-let APY = this.getIntegerValue(keyAPY)
-let SwopYearEmission = this.getIntegerValue(keySwopYearEmission)
-
-func assetNameA(pool:Address)  = match assetIdA(pool) {
-    case id: ByteVector => assetInfo(id).value().name
-    case waves: Unit => "WAVES"
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+    case string: String => string.fromBase58String()
+    case nothing => throw(key + "is empty")
 }
-func assetNameB(pool:Address)  = match assetIdB(pool) {
-    case id: ByteVector => assetInfo(id).value().name
-    case waves: Unit => "WAVES"
+let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
+let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
+let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
+let moneyBoxAddress = Address(getBase58FromOracle(kMoneyBoxAddress))
+let teamBoxAddress = Address(getBase58FromOracle(kTeamBoxAddress))
+let votingAddress = Address(getBase58FromOracle(kVotingAddress))
+let govAddress = Address(getBase58FromOracle(kGovAddress))
+let adminInvokePubKey = getBase58FromOracle(kAdminInvokePubKey)
+let lpFarmingAddress = Address(getBase58FromOracle(kLPFarmingAddress))
+let farmingTreasureAddr = Address(getBase58FromOracle(kFarmingTreasureAddr))
+let cpmmContract = Address(getBase58FromOracle(kCpmmContract))
+let axlyFarmAddr = Address(getBase58FromOracle(kAxlyFarming))
+let axlyLpId = getBase58FromOracle(kAxlyLpId)
+
+let active = this.getBooleanValue(kActive)
+let activeGlob = oracle.getBoolean(kActiveGlob).valueOrElse(true)
+let SWOP = this.getStringValue(kSWOPid).fromBase58String()
+
+func getRewardsPerBlockInfo() = {
+    let emissionPeriods = (height - startEmissionH) / blocksPerYear
+    func calcEmission(acc: (Int, Int), i: Int) = {
+        let (curEmission, prevEmission) = acc
+        if emissionPeriods > i then
+            (fraction(curEmission, 75, 100), curEmission)
+        else
+            (curEmission, prevEmission)
+    }
+    let (curEmission, prevEmission) = FOLD<20>([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], (swopYearEmission, swopYearEmission), calcEmission)
+    (curEmission/blocksPerYear, prevEmission/blocksPerYear, startEmissionH + blocksPerYear * emissionPeriods)
 }
 
-let SWOP = this.getStringValue(keySWOPid).fromBase58String()
-func isFirstHarvest(pool:Address) = pool.getBoolean(keyfirstHarvestCpmm).valueOrElse(false)
+func getHeightFirstHarvest(pool:String) = Address(pool.fromBase58String()).getInteger(kFirstHarvestHeight).valueOrElse(0)
 
-func getHeightFirstHarvest(pool:Address) = pool.getInteger(keyFirstHarvestHeight).valueOrElse(0)
+func getFHShareLimitToken(pool:Address) = pool.getInteger(kShareLimitFH)
+    .valueOrErrorMessage("No data on the key: " + kShareLimitFH)
 
-func getBalanceA(pool:Address) = pool.getInteger(keyBalancecpmmA)
-                                                .valueOrErrorMessage("No data on the key: " + keyBalancecpmmA)
+func getTotalShareToken(pool:String) = this.getInteger(pool + kShareTotalShareTokens)
+    .valueOrErrorMessage("No data on the key: " + pool + kShareTotalShareTokens)
 
-func getBalanceB(pool:Address) = pool.getInteger(keyBalancecpmmB)
-                                                .valueOrErrorMessage("No data on the key: " + keyBalancecpmmB)
+func getPoolVoted(pool: String) = votingAddress.getInteger(pool + kPoolVote).valueOrElse(
+     votingAddress.getString(pool + kPoolStruc).valueOrElse("").split("_")[0].parseInt().valueOrElse(0)
+)
 
-func getShareLimitToken(pool:Address) = pool.getInteger(kShareLimit)
-                                                .valueOrErrorMessage("No data on the key: " + kShareLimit)
-
-func getTotalShareTokenLocked(pool:String) = this.getInteger(pool + keyShareTokensLocked)
-                                                .valueOrErrorMessage("No data on the key: " + pool + keyShareTokensLocked)
+func getUserPoolVoted(pool: String, user: String) = votingAddress.getInteger(user + "_" + pool + kUserPoolVote).valueOrElse(
+    votingAddress.getString(user + "_" + pool + kUserPoolStruc).valueOrElse("").split("_")[0].parseInt().valueOrElse(0)
+)
 
 func getShareAssetId(pool:String) = pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
 
@@ -110,348 +126,602 @@ func accountBalance(assetId: ByteVector|Unit) = match assetId {
     case waves: Unit => this.wavesBalance().available
 }
 
-func getAssetInfo(assetId: ByteVector|Unit) = match assetId {
-    case id: ByteVector =>
-        let stringId = id.toBase58String()
-        let info = assetInfo(id).valueOrErrorMessage("Asset " + stringId + " doesn't exist")
-        (stringId, info.name, info.decimals)
-    case waves: Unit => ("WAVES", "WAVES", 8)
-}
-
 # Calculate scale value for assetId1/assetId2 with 8 digits after delimiter
 
-func calcScaleValue(assetId1:ByteVector,assetId2:ByteVector) = {
+func calcScaleValue(assetId1:ByteVector, assetId2:ByteVector) = {
     let assetId1Decimals = assetId1.assetInfo().value().decimals
     let assetId2Decimals = assetId2.assetInfo().value().decimals
-    let scaleDigits = assetId2Decimals-assetId1Decimals+8
-    pow(10,0,scaleDigits,0,0,HALFDOWN)
+    let scaleDigits = assetId2Decimals - assetId1Decimals + 8
+    pow(10, 0, scaleDigits, 0, 0 ,DOWN)
 }
 
-func userAvailableSWOP(pool:String, user:Address) = this.getInteger(pool+"_"+user.toString() + keyAvailableSWOP).valueOrElse(0)
+func userAvailableSWOP(pool:String, user:String) = this.getInteger(pool + "_" + user + kAvailableSWOP).valueOrElse(0)
 
 func rewardInfo(pool:String) = {
-    let totalRewardPerBlockCurrent = governanceAddress.getInteger(keyTotalRewardPerBlockCurrent)
-                                    .valueOrErrorMessage("No data on the key: " + keyTotalRewardPerBlockCurrent + " at address " + governanceAddress.toString())
-    let totalRewardPerBlockPrevious = governanceAddress.getInteger(keyTotalRewardPerBlockPrevious)
-                                    .valueOrErrorMessage("No data on the key: " + keyTotalRewardPerBlockPrevious + " at address " + governanceAddress.toString())
-    let rewardPoolFractionCurrent = governanceAddress.getInteger(pool + keyRewardPoolFractionCurrent)
-                                    .valueOrErrorMessage("No data on the key: " + pool + keyRewardPoolFractionCurrent + " at address " + governanceAddress.toString())
-    let rewardUpdateHeight = governanceAddress.getInteger(keyRewardUpdateHeight)
-                                    .valueOrErrorMessage("No data on the key: " + keyRewardUpdateHeight + " at address " + governanceAddress.toString())
-    let poolRewardUpdateHeight = governanceAddress.getInteger(pool + keyHeightPoolFraction)
-                                    .valueOrElse(0)
-    let rewardPoolFractionPrevious = governanceAddress.getInteger(pool + keyRewardPoolFractionPrevious)
-                                    .valueOrErrorMessage("No data on the key: " + pool + keyRewardPoolFractionPrevious + " at address " + governanceAddress.toString())
+    let (totalRewardPerBlockCurrent, totalRewardPerBlockPrevious, lastEmissionUpdateHeight) =  getRewardsPerBlockInfo()
+    let rewardPoolFractionCurrent = govAddress.getInteger(pool + kRewardPoolFractionCurrent)
+                                    .valueOrErrorMessage("No data on the key: " + pool + kRewardPoolFractionCurrent + " at address " + govAddress.toString())
+    let rewardUpdateHeight = govAddress.getInteger(kRewardUpdateHeight)
+                                    .valueOrErrorMessage("No data on the key: " + kRewardUpdateHeight + " at address " + govAddress.toString())
+    let poolRewardUpdateHeight = govAddress.getInteger(pool + kHeightPoolFraction)
+                                    .valueOrElse(rewardUpdateHeight)
+    let rewardPoolFractionPrevious = govAddress.getInteger(pool + kRewardPoolFractionPrevious)
+                                    .valueOrErrorMessage("No data on the key: " + pool + kRewardPoolFractionPrevious + " at address " + govAddress.toString())
 
-    let rewardPoolCurrent = totalRewardPerBlockCurrent.fraction(rewardPoolFractionCurrent,totalVoteShare)
-    let rewardPoolPrevious =  totalRewardPerBlockPrevious.fraction(rewardPoolFractionPrevious,totalVoteShare)
+    let rewardPoolCurrent = totalRewardPerBlockCurrent.fraction(rewardPoolFractionCurrent, totalVoteShare)
+    let rewardPoolPrevious = totalRewardPerBlockCurrent.fraction(rewardPoolFractionPrevious, totalVoteShare)
+    let rewardPoolPrevCurrent = totalRewardPerBlockPrevious.fraction(rewardPoolFractionCurrent, totalVoteShare)
+    let rewardPoolPrevPrevious = totalRewardPerBlockPrevious.fraction(rewardPoolFractionPrevious, totalVoteShare)
 
     if rewardPoolCurrent > totalRewardPerBlockCurrent || rewardPoolPrevious > totalRewardPerBlockPrevious then
         throw("rewardPoolCurrent > totalRewardPerBlockCurrent or rewardPoolPrevious > totalRewardPerBlockPrevious")
     else
-    (rewardPoolCurrent,rewardUpdateHeight,rewardPoolPrevious, poolRewardUpdateHeight)
+        (rewardPoolCurrent, rewardUpdateHeight, rewardPoolPrevious, poolRewardUpdateHeight, lastEmissionUpdateHeight, rewardPoolPrevCurrent, rewardPoolPrevPrevious)
 }
 
 func getLastInterestInfo(pool:String) = {
-    let lastInterest = this.getInteger(pool + keyLastInterest)
-                           .valueOrErrorMessage("No data on the key: " + pool + keyLastInterest)
-    let lastInterestHeight = this.getInteger(pool + keyLastInterestHeight)
+    let farmInterest = this.getInteger(pool + kFarmLastInterest)
+        .valueOrErrorMessage("No data on the key: " + pool + kFarmLastInterest)
+    let boostInterest = this.getInteger(pool + kBoostLastInterest).valueOrElse(0)
+    let lastInterestHeight = this.getInteger(pool + kLastInterestHeight)
                                  .valueOrElse(height)
-    (lastInterestHeight,lastInterest)
+    (lastInterestHeight, farmInterest, boostInterest)
 }
 
-func getUserInterestInfo(pool:String, userAddress:Address) = {
-    let userLastInterest = this.getInteger(pool + "_" + userAddress.toString() + keyUserLastInterest)
-    let userShare = this.getInteger(pool + "_" + userAddress.toString() + keyUserShareTokensLocked)
-    let lastInterest = this.getInteger(pool + keyLastInterest)
-                           .valueOrErrorMessage("No data on the key: " + pool + keyLastInterest)
-    let userLastInterestValue = match userLastInterest {
-        case userLastInterest: Int => userLastInterest
-        case _ => lastInterest
-    }
-    let userShareTokensAmount = match userShare {
-        case userShare: Int => userShare
-        case _ => 0
-    }
-    (userLastInterestValue,userShareTokensAmount)
+func calcFarmRwd(pool:String, curTotalReward:Int) = {
+    let poolBoostCoef = this.getInteger(pool + kPoolBoostCoef).valueOrElse(defPoolBoostCoef)
+    curTotalReward.fraction(lockBoostCoefScale, poolBoostCoef + lockBoostCoefScale)
 }
 
-func calcInterest(lastInterestHeight:Int,rewardUpdateHeight:Int,poolRewardUpdateHeight:Int,lastInterest:Int,currentRewardPerBlock:Int,shareTokenLocked:Int,previousRewardPerBlock:Int,shareAssetId:ByteVector,scaleValue:Int,pmtAmount:Int) = {
-    if shareTokenLocked == 0 then 0 else # this condition true only for the first call
+func calcBoostRwd(pool:String, curTotalReward:Int) = {
+    let poolBoostCoef = this.getInteger(pool + kPoolBoostCoef).valueOrElse(defPoolBoostCoef)
+    curTotalReward.fraction(poolBoostCoef, poolBoostCoef + lockBoostCoefScale)
+}
 
-    if (poolRewardUpdateHeight != 0) then {
-        if height < rewardUpdateHeight && rewardUpdateHeight == poolRewardUpdateHeight  then # in case of updating reward info at gov dApp
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            lastInterest + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-        else if rewardUpdateHeight < height && rewardUpdateHeight != poolRewardUpdateHeight then
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            lastInterest + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-        else if rewardUpdateHeight < height && rewardUpdateHeight == poolRewardUpdateHeight && lastInterestHeight > rewardUpdateHeight then
-            let reward = currentRewardPerBlock*(height-lastInterestHeight)
-            lastInterest + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-        else # in case if reward updated we need update interest
-            let rewardAfterLastInterestBeforeReawardUpdate = previousRewardPerBlock*(rewardUpdateHeight-lastInterestHeight)
-            let interestAfterUpdate = lastInterest + fraction(rewardAfterLastInterestBeforeReawardUpdate,scaleValue,shareTokenLocked)
-            let reward = currentRewardPerBlock*(height-rewardUpdateHeight)
-            interestAfterUpdate + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-    } else {
-        if height < rewardUpdateHeight then # in case of updating reward info at gov dApp
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            lastInterest + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
+func calcInterest(
+        pool: String,
+        lastInterestHeight:Int,
+        rewardUpdateHeight:Int,
+        poolRewardUpdateHeight:Int,
+        farmInterest:Int,
+        boostInterest:Int,
+        poolVoted: Int,
+        currentRewardPerBlock:Int,
+        shareTokenLocked:Int,
+        previousRewardPerBlock:Int,
+        scaleValue:Int,
+        toHeight: Int
+) = {
+    let (reward, farmIntrBefore, boostIntrBefore) = {
+        if (rewardUpdateHeight > toHeight && rewardUpdateHeight == poolRewardUpdateHeight) ||
+        (rewardUpdateHeight < toHeight && rewardUpdateHeight != poolRewardUpdateHeight) then # in case of updating reward info at gov dApp
+            let r = previousRewardPerBlock * (toHeight - lastInterestHeight)
+            (r, farmInterest, boostInterest)
+        else if rewardUpdateHeight < toHeight && rewardUpdateHeight == poolRewardUpdateHeight && lastInterestHeight > rewardUpdateHeight then
+            let r = currentRewardPerBlock * (toHeight - lastInterestHeight)
+            (r, farmInterest, boostInterest)
         else
-            if (lastInterestHeight > rewardUpdateHeight) then
-                let reward = currentRewardPerBlock*(height-lastInterestHeight)
-                lastInterest + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-            else # in case if reward updated we need update interest
-                let rewardAfterLastInterestBeforeReawardUpdate = previousRewardPerBlock*(rewardUpdateHeight-lastInterestHeight)
-                let interestAfterUpdate = lastInterest + fraction(rewardAfterLastInterestBeforeReawardUpdate,scaleValue,shareTokenLocked)
-                let reward = currentRewardPerBlock*(height-rewardUpdateHeight)
-                interestAfterUpdate + fraction(reward,scaleValue,shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
-    } 
+            let rwdBfrUpd = previousRewardPerBlock * (rewardUpdateHeight - lastInterestHeight) #reward After Last Interest Before Reaward Update
+            let fBfrUp = farmInterest + fraction(calcFarmRwd(pool, rwdBfrUpd), scaleValue, shareTokenLocked)
+            let bBfrUp = boostInterest + if poolVoted > 0 then calcBoostRwd(pool, rwdBfrUpd).fraction(scaleValue8, poolVoted) else 0
+            let rwd = currentRewardPerBlock * (toHeight - rewardUpdateHeight)
+            (rwd, fBfrUp, bBfrUp)
+    }
+    let newFarmInterest = farmIntrBefore + calcFarmRwd(pool, reward).fraction(scaleValue, shareTokenLocked) # interests[n] = interests[n-1] + reward[n] / totalSupplyLP(n)
+    let newBoostInterest = boostIntrBefore + if poolVoted > 0 then calcBoostRwd(pool, reward).fraction(scaleValue8, poolVoted) else 0
+    (newFarmInterest, newBoostInterest)
 }
 
-func claimCalc(pool:String,caller:Address,pmtAmount:Int) = {
-    let shareAssetId = getShareAssetId(pool)
-    let scaleValue = calcScaleValue(SWOP,shareAssetId) # return scale8 value with considering digits in assets
-    let shareTokenLocked = getTotalShareTokenLocked(pool)
-    let (lastInterestHeight,lastInterest) = getLastInterestInfo(pool)
-    let (currentRewardPerBlock,rewardUpdateHeight,previousRewardPerBlock, poolRewardUpdateHeight) = rewardInfo(pool)
-    let (userLastInterest,userShareTokensAmount) = getUserInterestInfo(pool,caller)
-    let currentInterest = calcInterest(lastInterestHeight,rewardUpdateHeight,poolRewardUpdateHeight,lastInterest,currentRewardPerBlock,shareTokenLocked,previousRewardPerBlock,shareAssetId,scaleValue,pmtAmount) # multiple by scale8
-    let claimAmount = fraction(userShareTokensAmount,currentInterest-userLastInterest,scaleValue)
-    let userNewInterest = currentInterest
-    (userNewInterest,currentInterest,claimAmount,userShareTokensAmount)
-}
+func claimCalc(pool:String, user:String) = {
+    let scaleValue = calcScaleValue(SWOP, getShareAssetId(pool)) # return scale8 value with considering digits in assets
+    let poolVoted = getPoolVoted(pool)
+    let uPoolVoted = getUserPoolVoted(pool, user)
+    let shareToken = getTotalShareToken(pool)
+    let totalShareVirtual = this.getInteger(pool + kShareTokensVirtual).valueOrElse(shareToken)
+    let stratBFarmInterest = this.getInteger(pool + kStratBFarmInterest).valueOrElse(0)
+    let (lastInterestHeight, farmInterest, boostInterest) = getLastInterestInfo(pool)
+    let (
+        currentRewardPerBlock,
+        rewardUpdateHeight,
+        previousRewardPerBlock,
+        poolRewardUpdateHeight,
+        emissionUpdateHeight,
+        prevCurrentRewardPerBlock,
+        prevPreviousRewardPerBlock
+        ) = rewardInfo(pool)
+    let uFarmInterest = this.getInteger(pool + "_" + user + kFarmUserLastInterest).valueOrElse(farmInterest)
+    let uBoostInterest = this.getInteger(pool + "_" + user + kBoostUserLastInterest).valueOrElse(
+        if stratBFarmInterest > uFarmInterest && uPoolVoted > 0 then 0 else boostInterest
+    )
+    let uShareTokensStaked = this.getInteger(pool + "_" + user + kUserShareTokensStaked).valueOrElse(0)
+    let uShareTokensVirt = this.getInteger(pool + "_" + user + kUserShareTokensVirtual).valueOrElse(uShareTokensStaked)
 
-
-# added update pools
-func calculateProtocolReward(pool:String) ={
-    let (lastInterestHeight,lastInterest) = getLastInterestInfo(pool)
-    let (currentRewardPerBlock,rewardUpdateHeight,previousRewardPerBlock,poolRewardUpdateHeight) = rewardInfo(pool)
-    let shareTokenLocked = getTotalShareTokenLocked(pool)
-    if shareTokenLocked == 0 && poolRewardUpdateHeight == 0 then
-        if height < rewardUpdateHeight then
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            reward
-        else
-            if (lastInterestHeight > rewardUpdateHeight) then
-                let reward = currentRewardPerBlock*(height-lastInterestHeight)
-                reward
+    if totalShareVirtual == 0 then
+        let toTreasury = if lastInterestHeight < emissionUpdateHeight then
+                prevCurrentRewardPerBlock * (emissionUpdateHeight - lastInterestHeight) +
+                currentRewardPerBlock * (height - emissionUpdateHeight)
             else
-                let rewardAfterLastInterestBeforeReawardUpdate = previousRewardPerBlock*(rewardUpdateHeight-lastInterestHeight)
-                let reward = currentRewardPerBlock*(height-rewardUpdateHeight)
-                reward + rewardAfterLastInterestBeforeReawardUpdate
-    else if shareTokenLocked == 0 && poolRewardUpdateHeight != 0 then
-        if height < rewardUpdateHeight && rewardUpdateHeight == poolRewardUpdateHeight  then # in case of updating reward info at gov dApp
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            reward
-        else if rewardUpdateHeight < height && rewardUpdateHeight != poolRewardUpdateHeight then
-            let reward = previousRewardPerBlock*(height-lastInterestHeight)
-            reward
-        else if rewardUpdateHeight < height && rewardUpdateHeight == poolRewardUpdateHeight && lastInterestHeight > rewardUpdateHeight then
-            let reward = currentRewardPerBlock*(height-lastInterestHeight)
-            reward
-        else # in case if reward updated we need update interest
-            let rewardAfterLastInterestBeforeReawardUpdate = previousRewardPerBlock*(rewardUpdateHeight-lastInterestHeight)
-            let reward = currentRewardPerBlock*(height-rewardUpdateHeight)
-            reward + rewardAfterLastInterestBeforeReawardUpdate
+                currentRewardPerBlock * (height - lastInterestHeight)
+        let teamReward = fraction(toTreasury, teamFee, 100)
+        (farmInterest, boostInterest, 0, toTreasury - teamReward, teamReward)
+    else
+        let (prevFarmInterest, prevBoostInterest, LIHeight) = if lastInterestHeight < emissionUpdateHeight then
+                # if no actions in pool and emission updates after last interest was saved in state
+                # we need to calc interest based on prev emission til emission updates
+                # and add it to interest calc based on cur emission after emission updates til cur height
+                let (prevNewFarmInterest, prevNewBoostInterest) = calcInterest(
+                    pool,
+                    lastInterestHeight,
+                    rewardUpdateHeight,
+                    poolRewardUpdateHeight,
+                    farmInterest,
+                    boostInterest,
+                    poolVoted,
+                    prevCurrentRewardPerBlock,
+                    totalShareVirtual,
+                    prevPreviousRewardPerBlock,
+                    scaleValue,
+                    emissionUpdateHeight
+                ) # multiple by scale8
+                (prevNewFarmInterest, prevNewBoostInterest, emissionUpdateHeight)
+            else
+                (farmInterest, boostInterest, lastInterestHeight)
+        let (newFarmInterest, newBoostInterest) = calcInterest(
+            pool,
+            LIHeight,
+            rewardUpdateHeight,
+            poolRewardUpdateHeight,
+            prevFarmInterest,
+            prevBoostInterest,
+            poolVoted,
+            currentRewardPerBlock,
+            totalShareVirtual,
+            previousRewardPerBlock,
+            scaleValue,
+            height
+        ) # multiple by scale8
+        let farmRwd = uShareTokensVirt.fraction(newFarmInterest - uFarmInterest, scaleValue)
+        let poolBoostCoef = this.getInteger(pool + kPoolBoostCoef).valueOrElse(defPoolBoostCoef)
+        let boostRwdMax = uShareTokensVirt.fraction(newFarmInterest - max([uFarmInterest, stratBFarmInterest]), scaleValue).fraction(poolBoostCoef, lockBoostCoefScale)
+        let curBoostRwd = (newBoostInterest - uBoostInterest).fraction(uPoolVoted, scaleValue8)
+        let boostRwd = min([boostRwdMax, curBoostRwd])
+        let toTreasury = boostRwdMax - boostRwd
+        let teamReward = fraction(toTreasury, teamFee, 100)
+        if toTreasury < 0 then throw("toTreasury < 0") else
+        (newFarmInterest, newBoostInterest, farmRwd + boostRwd, toTreasury - teamReward, teamReward)
+}
+
+#function for backend
+func availableClaimCalcAllByUser(pools:List[String], user:String) = {
+    func calcAvailable(acc: (List[String], List[Int]), pool:String) = {
+        let (newPools, amounts) = acc
+        let (fi, bi, claimAmount, tt) = claimCalc(pool, user)
+        let availableFund = userAvailableSWOP(pool, user) + claimAmount
+        (newPools :+ pool, amounts :+ availableFund)
+    }
+    FOLD<60>(pools, ([],[]), calcAvailable)
+}
+
+func canLockInFirstHarvest(pool: String, user: String, userShareTokensStaked: Int, pmtAmount: Int, lockType: Int) = {
+    if getHeightFirstHarvest(pool) > height then
+        let totalVoteAmount = votingAddress.getInteger(pool + kHarvestPoolVote).valueOrElse(0)
+        let userVoteAmount = votingAddress.getInteger(user + "_" + pool + kHarvestUserPoolVote).valueOrElse(0)
+        let FHShareTokenLimit = getFHShareLimitToken(pool.addressFromStringValue())
+        let FHShareTokenUserLimit = fraction(FHShareTokenLimit, userVoteAmount, totalVoteAmount) - userShareTokensStaked
+        if lockType > 0 then throw("You can't lock shareTokens till first harvest end.") else
+        if userVoteAmount == 0 then throw("You can't lock shareTokens. You didn't vote for pool in first week.") else
+        if pmtAmount >= FHShareTokenUserLimit then pmtAmount - FHShareTokenUserLimit else
+        0
     else
         0
 }
 
-func checkPmtAssetIdCorrect(pool:String,pmtAssetId:ByteVector|Unit) = {
-   let poolShareAssetId = pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
-   if pmtAssetId == poolShareAssetId then true else false
+func getLockParams(type: Int) = {
+    let lockParams = this.getString(type.toString() + kLockParams)
+        .valueOrErrorMessage("There are no key for lock type" + type.toString())
+        .split("_")
+    (lockParams[0].parseIntValue(), lockParams[1].parseIntValue())
 }
 
-func getUserSWOPClaimedAmount(pool:String,user:Address) =  this.getInteger(pool + "_" + user.toString() + keyUserSWOPClaimedAmount)
-                                                .valueOrElse(0)
-
 func suspend(cause: String) = [
-    BooleanEntry(keyActive, false),
-    StringEntry(keyCause, cause)
+    BooleanEntry(kActive, false),
+    StringEntry(kCause, cause)
 ]
+func isActive() = if active && activeGlob then unit else throw("DApp is inactive at this moment")
+
+func isAdminCall(i:Invocation) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then unit
+        else throw("Only admin can call this function")
+
+func isPoolCall(i:Invocation, pool: String) = if i.caller.toString() == pool || i.caller == cpmmContract then unit
+        else throw("Only pool can call this function")
+
+func getDeprecatedPool(pool: String) = oracle.getBoolean(kDeprecatedPool + pool).valueOrElse(false)
+
+func isDeprecatedPool(pool: String) = if !getDeprecatedPool(pool) then unit
+        else throw("Pool is deprecated. Only unlock action allowed.")
+
+func isSelfCall(i: Invocation) = if i.caller == this then unit
+        else throw("Only contract itself can call this function")
+
+func calcLockShareTokens(i: Invocation, caller: Address, pool:String, lockType: Int) = {
+    let user = caller.toString()
+    strict inv = if i.payments[0].assetId == axlyLpId then axlyFarmAddr.invoke("lpAction", [user], []) else nil
+    let shareAssetId = getShareAssetId(pool)
+    let totalShare = getTotalShareToken(pool)
+    let totalShareVirtual = this.getInteger(pool + kShareTokensVirtual).valueOrElse(totalShare)
+    let userStakedAmount = this.getInteger(pool + "_" + user + kUserShareTokensStaked).valueOrElse(0)
+    let userLockedHeigt = this.getInteger(pool + "_" + user + kUserShareTokensLockedHeight).valueOrElse(0)
+    let userLockedAmount = this.getInteger(pool + "_" + user + kUserShareTokensLocked).valueOrElse(0)
+    let userAmountVirtual = this.getInteger(pool + "_" + user + kUserShareTokensVirtual).valueOrElse(userStakedAmount)
+    let totalUserShareTokens = userStakedAmount + userLockedAmount + i.payments[0].amount
+    let (lockPeriod, lockCoef) = getLockParams(lockType)
+    let lockWavesFee = this.getIntegerValue(kLockWavesFee)
+
+    if i.payments[0].assetId != shareAssetId then throw("Wrong sharetoken in payment") else
+    if i.payments[0].amount <= 0 then throw("Payment amount must be greater than 0") else
+    if lockType < 0 then throw("lockType must be >= 0") else
+    strict shareTokensChangeOnFH = canLockInFirstHarvest(pool, user, userStakedAmount, i.payments[0].amount, lockType)
+    let (lockEntries, totalShareNew) =
+        if lockType == 0 then
+            let userAmountVirtualNew = userAmountVirtual + i.payments[0].amount - shareTokensChangeOnFH
+            ([
+                IntegerEntry(pool + "_" + user + kUserShareTokensStaked, userStakedAmount + i.payments[0].amount - shareTokensChangeOnFH),
+                IntegerEntry(pool + "_" + user + kUserShareTokensVirtual, userAmountVirtualNew),
+                IntegerEntry(pool + kShareTokensVirtual, totalShareVirtual + i.payments[0].amount - shareTokensChangeOnFH),
+                ScriptTransfer(caller, shareTokensChangeOnFH, i.payments[0].assetId)
+            ], totalShare + i.payments[0].amount - shareTokensChangeOnFH)
+        else
+            if userLockedHeigt == 0 && (i.payments.size() < 2 || i.payments[1].assetId != unit || i.payments[1].amount < lockWavesFee) then
+                throw("You need to pay additional waves comission " + lockWavesFee.toString() + "WAVES") else
+            if userLockedHeigt > height + lockPeriod then throw("You cannot lock sharetokens for a period less than what you have already locked") else
+            let userLockedAmountNew = userLockedAmount + i.payments[0].amount
+            let userLockedHeigtNew = height + lockPeriod
+            let userAmountVirtualNew = fraction(userLockedAmountNew, lockCoef, lockBoostCoefScale) + userStakedAmount
+            ([
+                IntegerEntry(pool + "_" + user + kUserShareTokensLocked, userLockedAmountNew),
+                IntegerEntry(pool + "_" + user + kUserShareTokensLockedHeight, userLockedHeigtNew),
+                IntegerEntry(pool + "_" + user + kUserShareTokensLockedType, lockType),
+                IntegerEntry(pool + "_" + user + kUserShareTokensVirtual, userAmountVirtualNew),
+                IntegerEntry(pool + kShareTokensVirtual, totalShareVirtual - userAmountVirtual + userAmountVirtualNew)
+            ], totalShare + i.payments[0].amount)
+    if totalShareNew > accountBalance(shareAssetId) then throw("Balance of share-token is lower than totalAmount") else
+    let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+    let availableFundsNew = userAvailableSWOP(pool, user) + claimAmount
+    strict uplp = if Address(pool.fromBase58String()).getString("version") == "3.0.0" then
+            invoke(lpFarmingAddress, "updateUserInterest", [user, pool, totalUserShareTokens], [])
+        else
+            0
+    [
+        IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+        IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+        IntegerEntry(pool + kFarmLastInterest, farmInterest),
+        IntegerEntry(pool + kBoostLastInterest, boostInterest),
+        IntegerEntry(pool + kLastInterestHeight, height),
+        IntegerEntry(pool + kShareTotalShareTokens, totalShareNew),
+        IntegerEntry(pool + "_" + user + kAvailableSWOP, availableFundsNew),
+        Reissue(SWOP, toTreasure + teamReward, true),
+        ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+        ScriptTransfer(teamBoxAddress, teamReward, SWOP)
+
+    ] ++ lockEntries
+}
+
+func calcWithdrawShareTokens(i: Invocation, caller: Address, pool:String, shareTokensWithdrawAmount:Int) = {
+    strict inv = if getDeprecatedPool(pool) then invoke(this, "unlockUserLockDeprecated", [pool, caller.toString()], []) else 0
+    let shareTokensId = pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
+    let user = caller.toString()
+    strict inv1 = if shareTokensId == axlyLpId then axlyFarmAddr.invoke("lpAction", [user], []) else nil
+    let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+    let userStakedAmount = this.getInteger(pool + "_" + user + kUserShareTokensStaked).valueOrElse(0)
+    let userLockedAmount = this.getInteger(pool + "_" + user + kUserShareTokensLocked).valueOrElse(0)
+    let userAmountVirtual = this.getInteger(pool + "_" + user + kUserShareTokensVirtual).valueOrElse(userStakedAmount)
+    let userStakedAmountNew = userStakedAmount - shareTokensWithdrawAmount
+    let availableFundsNew = userAvailableSWOP(pool, user) + claimAmount
+    let totalShareAmount = getTotalShareToken(pool)
+    let totalShareVirtual = this.getInteger(pool + kShareTokensVirtual).valueOrElse(totalShareAmount)
+    let totalShareAmountNew = totalShareAmount - shareTokensWithdrawAmount
+    let totalShareVirtualNew = totalShareVirtual - shareTokensWithdrawAmount
+    let userAmountVirtualNew = userAmountVirtual - shareTokensWithdrawAmount
+
+
+    if shareTokensWithdrawAmount > userStakedAmount then throw("Withdraw amount more then user locked amount") else
+    if totalShareAmount < accountBalance(shareTokensId) then throw("Balance of share-token is lower than totalAmount") else
+    strict uplp = if Address(pool.fromBase58String()).getString("version") == "3.0.0" then
+        invoke(lpFarmingAddress, "updateUserInterest", [user, pool, userStakedAmount + userLockedAmount], [])
+    else
+        0
+    [
+        IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+        IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+        IntegerEntry(pool + kFarmLastInterest, farmInterest),
+        IntegerEntry(pool + kBoostLastInterest, boostInterest),
+        IntegerEntry(pool + kLastInterestHeight, height),
+        IntegerEntry(pool + "_" + user + kUserShareTokensStaked, userStakedAmountNew),
+        IntegerEntry(pool + "_" + user + kUserShareTokensVirtual, userAmountVirtualNew),
+        IntegerEntry(pool + kShareTotalShareTokens, totalShareAmountNew),
+        IntegerEntry(pool + kShareTokensVirtual, totalShareVirtualNew),
+        IntegerEntry(pool+"_" + user + kAvailableSWOP, availableFundsNew),
+        Reissue(SWOP, toTreasure + teamReward, true),
+        ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+        ScriptTransfer(teamBoxAddress, teamReward, SWOP),
+        ScriptTransfer(i.caller, shareTokensWithdrawAmount, shareTokensId)
+    ]
+}
+
+func calcClaim(i:Invocation, pool:String, caller: Address) = {
+    let shareTokensId = pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
+    let user = caller.toString()
+    let shareTokenLocked = getTotalShareToken(pool)
+    let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+    let availableFund = userAvailableSWOP(pool, user) + claimAmount
+    if shareTokenLocked < accountBalance(shareTokensId) then throw("Balance of share-token is lower than totalAmount") else
+    let uTrans = if i.caller != this then [ScriptTransfer(i.caller, availableFund, SWOP)] else []
+    ([
+        IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+        IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+        IntegerEntry(pool + kFarmLastInterest, farmInterest),
+        IntegerEntry(pool + kBoostLastInterest, boostInterest),
+        IntegerEntry(pool + kLastInterestHeight, height),
+        IntegerEntry(pool + "_" + user + kAvailableSWOP, 0),
+        Reissue(SWOP, toTreasure + availableFund + teamReward, true),
+        ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+        ScriptTransfer(teamBoxAddress, teamReward, SWOP)
+    ] ++ uTrans
+    , availableFund)
+}
+
+func unlockUserLockCalc(i: Invocation, pool: String, user: String) = {
+    let totalShareVirtual = this.getIntegerValue(pool + kShareTokensVirtual)
+    let userStakedAmount = this.getInteger(pool + "_" + user + kUserShareTokensStaked).valueOrElse(0)
+    let userLockedAmount = this.getInteger(pool + "_" + user + kUserShareTokensLocked).valueOrElse(0)
+    let userAmountVirtual = this.getInteger(pool + "_" + user + kUserShareTokensVirtual).valueOrElse(userStakedAmount)
+    let userStakedAmountNew = userStakedAmount + userLockedAmount
+    let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+    let availableFundsNew = userAvailableSWOP(pool, user) + claimAmount
+    [
+        IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+        IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+        IntegerEntry(pool + kFarmLastInterest, farmInterest),
+        IntegerEntry(pool + kBoostLastInterest, boostInterest),
+        IntegerEntry(pool + kLastInterestHeight, height),
+        IntegerEntry(pool + "_" + user + kUserShareTokensStaked, userStakedAmountNew),
+        IntegerEntry(pool + "_" + user + kUserShareTokensVirtual, userStakedAmountNew),
+        IntegerEntry(pool + kShareTokensVirtual, totalShareVirtual - userAmountVirtual + userStakedAmountNew),
+        IntegerEntry(pool + "_" + user + kAvailableSWOP, availableFundsNew),
+        DeleteEntry(pool + "_" + user + kUserShareTokensLocked),
+        DeleteEntry(pool + "_" + user + kUserShareTokensLockedHeight),
+        DeleteEntry(pool + "_" + user + kUserShareTokensLockedType),
+        Reissue(SWOP, toTreasure + teamReward, true),
+        ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+        ScriptTransfer(teamBoxAddress, teamReward, SWOP)
+    ]
+}
 
 @Callable(i)
 func init(earlyLP:String) = {
-    if this.getString(keySWOPid).isDefined() then throw("SWOP already initialized") else
+    if this.getString(kSWOPid).isDefined() then throw("SWOP already initialized") else
     let initAmount = 100000000000000
     let SWOPissue = Issue("SWOP", "SWOP protocol token", initAmount, 8, true)
     let SWOPid = SWOPissue.calculateAssetId()
     [
-        BooleanEntry(keyActive, true),
+        BooleanEntry(kActive, true),
         Issue("SWOP", "SWOP protocol token", initAmount, 8, true),
-        StringEntry(keySWOPid, SWOPid.toBase58String())
+        StringEntry(kSWOPid, SWOPid.toBase58String())
     ]
 }
 
 @Callable(i)
-func initPoolShareFarming(pool:String) = {
-    if i.caller != this then
-        throw("Only the DApp itself can call this function") else
-    let (currentReward,rewardUpdateHeight,previousRewardPerBlock,poolRewardUpdateHeight) = rewardInfo(pool)
-    [
-        IntegerEntry(pool + keyShareTokensLocked, 0),
-        IntegerEntry(pool + keyLastInterest, 0),
-        IntegerEntry(pool + keyLastInterestHeight,height)
-    ]
-}
-
-@Callable(i)
-func updatePoolInterest(pool:String) = {
-    if i.caller != wallet then
-        throw("Only the Admin itself can call this function")
-    else if !isActive then
-        throw("DApp is inactive at this moment") else
-    let (userNewInterest,currentInterest,claimAmount,userShareTokensAmount) = claimCalc(pool,adminIncreaseInterestAddress,0)
-    let (currentReward,rewardUpdateHeight,previousRewardPerBlock,poolRewardUpdateHeight) = rewardInfo(pool)
-    [
-        IntegerEntry(pool + keyLastInterest, userNewInterest),
-        IntegerEntry(pool + keyLastInterestHeight,height)
-    ]
-}
-
-@Callable(i)
-func lockShareTokens(pool:String) = {
-    let (pmtAmount, pmtAssetId) = (i.payments[0].amount, i.payments[0].assetId)
-    let (pmtStrAssetId, pmtAssetName, pmtDecimals) = getAssetInfo(pmtAssetId)
-    let (userNewInterest,currentInterest,claimAmount,userShareTokensAmount) = claimCalc(pool,i.caller,pmtAmount)
-    let userShareAmountNew = userShareTokensAmount+pmtAmount
-    let availableFundsNew = userAvailableSWOP(pool,i.caller) + claimAmount
-    let totalShareAmount = getTotalShareTokenLocked(pool)
-    let totalShareAmountNew = totalShareAmount + pmtAmount
-    let userClaimedAmount = getUserSWOPClaimedAmount(pool,i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
-    let baseEntry = [
-                        IntegerEntry(pool + "_" + i.caller.toString() + keyUserLastInterest, userNewInterest),
-                        IntegerEntry(pool + "_" + i.caller.toString() + keyUserShareTokensLocked, userShareAmountNew),
-                        IntegerEntry(pool + keyShareTokensLocked, totalShareAmountNew),
-                        IntegerEntry(pool + keyLastInterest, currentInterest),
-                        IntegerEntry(pool + keyLastInterestHeight, height),
-                        IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-                        IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount),
-                        IntegerEntry(pool + "_" + i.caller.toString() + keyAvailableSWOP, availableFundsNew)
-                    ]
-
-    if (pmtAmount <= 0) then
-        throw("You can't lock token")
-    else if !isActive then  
-        throw("DApp is inactive at this moment")
-    else if !checkPmtAssetIdCorrect(pool,pmtAssetId) then throw("Incorrect pmtAssetId")
-    else if (isFirstHarvest(Address(pool.fromBase58String())) && getHeightFirstHarvest(Address(pool.fromBase58String())) > height) then {
-        let harvestPeriod = (getHeightFirstHarvest(Address(pool.fromBase58String())) - startHeight + 1) / periodLength - 1
-        let amountOfVoting = votingAddress.getStringValue(i.caller.toString() + "_" + pool + "_user_pool_struc").split("_")
-        let amountPoolStract = votingAddress.getStringValue(pool + "_pool_struc").split("_")
-        let amountActiveVoteUserPoolStract = votingAddress.getString(i.caller.toString() + "_" + pool + kHarvestUserPoolActiveVoteStrucVoting).valueOrElse("").split("_")
-        let amountPoolActiveVoteStract = votingAddress.getString(pool + kHarvestPoolActiveVoteStrucVoting).valueOrElse("").split("_")
-        let userShareTokenLocked = userShareTokensAmount
-        let userPoolActiveVote = if currPeriod.toString() == amountOfVoting[2] then {parseInt(amountActiveVoteUserPoolStract[0]).valueOrElse(0)} else {parseInt(amountOfVoting[1]).valueOrElse(0)}
-        let poolActiveVote = if currPeriod.toString() == amountPoolStract[2] then {parseInt(amountPoolActiveVoteStract[0]).valueOrElse(0)} else {parseInt(amountPoolStract[1]).valueOrElse(0)}
-        let protocolReward = calculateProtocolReward(pool)
-            if(userPoolActiveVote != 0) then {
-                let limitShareToken = getShareLimitToken(pool.addressFromStringValue())
-                let shareToken = fraction(limitShareToken,userPoolActiveVote,poolActiveVote) - userShareTokenLocked
-                if amountActiveVoteUserPoolStract.size() > 1 && parseInt(amountActiveVoteUserPoolStract[1]).valueOrElse(0) >= harvestPeriod then
-                    throw("You can't share token")
-                else if (pmtAmount > limitShareToken) then
-                    throw("You can't share token more than " + limitShareToken.toString())
-                else if (shareToken > 0) then {
-                    if totalShareAmountNew < fraction(99, (accountBalance(pmtAssetId) + pmtAmount), 100) then throw("Balance of share-token is greater than totalAmount")  
-                    else if (totalShareAmount == 0) then {
-                        baseEntry ++ [
-                            Reissue(SWOP, protocolReward, true),
-                            ScriptTransfer(wallet, protocolReward, SWOP) ]
-                    } else if (pmtAmount <= shareToken) then {
-                        baseEntry
-                    } else
-                        throw("Your maximum share token is " + shareToken.toString())
-                } else
-                    throw("You can't share token")
-            } else {
-                throw("Your amount of token less than 0")
-            }
-        }
-    else {
-        baseEntry
-    }
-}
-
-@Callable(i)
-func withdrawShareTokens(pool:String,shareTokensWithdrawAmount:Int) = {
-    let shareTokensId =  pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
-        let (userNewInterest,currentInterest,claimAmount,userShareTokensAmount) = claimCalc(pool,i.caller,1)
-        let userShareAmountNew = userShareTokensAmount-shareTokensWithdrawAmount
-        let availableFundsNew = userAvailableSWOP(pool,i.caller) + claimAmount
-        let totalShareAmount = getTotalShareTokenLocked(pool)
-        let totalShareAmountNew = totalShareAmount - shareTokensWithdrawAmount
-        let userClaimedAmount = getUserSWOPClaimedAmount(pool,i.caller)
-        let userClaimedAmountNew = userClaimedAmount + claimAmount
-
-        if shareTokensWithdrawAmount > userShareTokensAmount then
-            throw("Withdraw amount more then user locked amount")
-        else if !isActive then
-            throw("DApp is inactive at this moment") else
-        if shareTokensWithdrawAmount > userShareTokensAmount then throw("Withdraw amount more then user locked amount") 
-        else if totalShareAmountNew < fraction(99, (accountBalance(shareTokensId) - shareTokensWithdrawAmount), 100) then throw("Balance of share-token is greater than totalAmount") else
+func initPoolShareFarming(pool:String) =
+    isAdminCall(i).valueOrElse({
+        if !oracle.getString(kPoolInOracle + pool).isDefined() then throw("Pool is not in oracle") else
+        if this.getInteger(pool + kShareTotalShareTokens).isDefined() then throw("Pool already inited") else
         [
-            IntegerEntry(pool + "_" + i.caller.toString() + keyUserLastInterest, userNewInterest),
-            IntegerEntry(pool + "_" + i.caller.toString() + keyUserShareTokensLocked, userShareAmountNew),
-            IntegerEntry(pool +  keyLastInterest, currentInterest),
-            IntegerEntry(pool + keyLastInterestHeight, height),
-            IntegerEntry(pool + keyShareTokensLocked, totalShareAmountNew),
-            IntegerEntry(pool+"_"+i.caller.toString() + keyAvailableSWOP, availableFundsNew),
-            IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-            IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount),
-            ScriptTransfer(i.caller, shareTokensWithdrawAmount, shareTokensId)
+            IntegerEntry(pool + kShareTotalShareTokens, 0),
+            IntegerEntry(pool + kFarmLastInterest, 0),
+            IntegerEntry(pool + kBoostLastInterest, 0),
+            IntegerEntry(pool + kLastInterestHeight, height)
         ]
-}
+    })
 
 @Callable(i)
-func claim(pool:String) = {
-    let shareTokensId =  pool.addressFromString().value().getStringValue("share_asset_id").fromBase58String()
-    let shareTokenLocked = getTotalShareTokenLocked(pool)
-    let (lastInterestHeight,lastInterest) = getLastInterestInfo(pool)
-    let (currentRewardPerBlock, rewardUpdateHeight,previousRewardPerBlock,poolRewardUpdateHeight) = rewardInfo(pool)
-    let (userNewInterest,currentInterest,claimAmount,userShareTokensAmount) = claimCalc(pool,i.caller,1)
-    let availableFund = userAvailableSWOP(pool,i.caller) + claimAmount
-    let userClaimedAmount = getUserSWOPClaimedAmount(pool,i.caller)
-    let userClaimedAmountNew = userClaimedAmount + claimAmount
-    if availableFund == 0 then
-        throw("You have 0 available SWOP")
-    else if !isActive then
-        throw("DApp is inactive at this moment") else
-    if availableFund == 0 then throw("You have 0 available SWOP")
-    else if shareTokenLocked < fraction(99, accountBalance(shareTokensId), 100) then throw("Balance of share-token is greater than totalAmount") else
-    [
-        IntegerEntry(pool + "_" + i.caller.toString() + keyUserLastInterest, userNewInterest),
-        IntegerEntry(pool + keyLastInterest, currentInterest),
-        IntegerEntry(pool + keyLastInterestHeight, height),
-        IntegerEntry(pool + "_" + i.caller.toString() + keyAvailableSWOP, 0),
-        Reissue(SWOP, availableFund, true),
-        IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPClaimedAmount, userClaimedAmountNew),
-        IntegerEntry(pool + "_" + i.caller.toString() + keyUserSWOPLastClaimedAmount, claimAmount),
-        ScriptTransfer(i.caller, availableFund, SWOP)
-    ]
-}
+func updatePoolInterest(pool:String) =
+    isActive().valueOrElse({
+        if i.caller != govAddress then throw("Only Governance can call this function") else
+        let user = adminInvokePubKey.addressFromPublicKey().toString()
+        let (farmInterest, boostInterest, boostLPinterest) = claimCalc(pool, user)
+        [
+            IntegerEntry(pool + kFarmLastInterest, farmInterest),
+            IntegerEntry(pool + kBoostLastInterest, boostInterest),
+            IntegerEntry(pool + kLastInterestHeight, height)
+        ]
+    })
+
+@Callable(i)
+func lockShareTokens(pool:String, lockType: Int) =
+    isDeprecatedPool(pool).valueOrElse({
+    isActive().valueOrElse({
+        calcLockShareTokens(i, i.caller, pool,lockType)
+    })})
+
+@Callable(i)
+func lockShareTokensFromPool(callerBytes: ByteVector, pool:String, lockType: Int) =
+    isDeprecatedPool(pool).valueOrElse({
+    isActive().valueOrElse({
+    isPoolCall(i, pool).valueOrElse({
+        calcLockShareTokens(i, Address(callerBytes), pool,lockType)
+    })})})
+
+@Callable(i)
+func lockStakedShareTokens(pool:String, lockType: Int, lockAmount: Int) =
+    isDeprecatedPool(pool).valueOrElse({
+    isActive().valueOrElse({
+        let shareAssetId = getShareAssetId(pool)
+        let user = i.caller.toString()
+        let totalShare = getTotalShareToken(pool)
+        let totalShareVirtual = this.getInteger(pool + kShareTokensVirtual).valueOrElse(totalShare)
+        let userStakedAmount = this.getInteger(pool + "_" + user + kUserShareTokensStaked).valueOrElse(0)
+        let userLockedHeigt = this.getInteger(pool + "_" + user + kUserShareTokensLockedHeight).valueOrElse(0)
+        let userLockedAmount = this.getInteger(pool + "_" + user + kUserShareTokensLocked).valueOrElse(0)
+        let userAmountVirtual = this.getInteger(pool + "_" + user + kUserShareTokensVirtual).valueOrElse(userStakedAmount)
+        let totalUserShareTokens = userStakedAmount + userLockedAmount
+        let (lockPeriod, lockCoef) = getLockParams(lockType)
+        let lockWavesFee = this.getIntegerValue(kLockWavesFee)
+
+        if getHeightFirstHarvest(pool) > height then throw("You can't lock shareTokens till first harvest end.") else
+        if lockType <= 0 then throw("lockType must be > 0") else
+        if lockAmount > userStakedAmount then throw("You can't lock more than " + userStakedAmount.toString()) else
+        if totalShare < accountBalance(shareAssetId) then throw("Balance of share-token is lower than totalAmount") else
+        if userLockedHeigt == 0 && (i.payments.size() < 1 || i.payments[0].assetId != unit || i.payments[0].amount < lockWavesFee) then throw("You need to pay additional waves comission " + lockWavesFee.toString() + "WAVES") else
+        if userLockedHeigt == 0 && lockAmount <= 0 then throw("lockAmount must be greater than 0") else
+        if lockAmount < 0 then throw("lockAmount must be positive") else
+        if userLockedHeigt > height + lockPeriod then throw("You cannot lock sharetokens for a period less than what you have already locked") else
+        let userLockedAmountNew = userLockedAmount + lockAmount
+        let userStakedAmountNew = userStakedAmount - lockAmount
+        let userLockedHeigtNew = height + lockPeriod
+        let userAmountVirtualNew = fraction(userLockedAmountNew, lockCoef, lockBoostCoefScale) + userStakedAmountNew
+        let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+        let availableFundsNew = userAvailableSWOP(pool, user) + claimAmount
+        [
+            IntegerEntry(pool + "_" + user + kUserShareTokensStaked, userStakedAmountNew),
+            IntegerEntry(pool + "_" + user + kUserShareTokensLocked, userLockedAmountNew),
+            IntegerEntry(pool + "_" + user + kUserShareTokensLockedHeight, userLockedHeigtNew),
+            IntegerEntry(pool + "_" + user + kUserShareTokensLockedType, lockType),
+            IntegerEntry(pool + "_" + user + kUserShareTokensVirtual, userAmountVirtualNew),
+            IntegerEntry(pool + kShareTokensVirtual, totalShareVirtual - userAmountVirtual + userAmountVirtualNew),
+            IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+            IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+            IntegerEntry(pool + kFarmLastInterest, farmInterest),
+            IntegerEntry(pool + kBoostLastInterest, boostInterest),
+            IntegerEntry(pool + kLastInterestHeight, height),
+            IntegerEntry(pool + "_" + user + kAvailableSWOP, availableFundsNew),
+            Reissue(SWOP, toTreasure + teamReward, true),
+            ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+            ScriptTransfer(teamBoxAddress, teamReward, SWOP)
+        ]
+    })})
+
+@Callable(i)
+func unlockUserLock(pool: String, user: String) =
+    isActive().valueOrElse({
+        let userLockedHeigt = this.getInteger(pool + "_" + user + kUserShareTokensLockedHeight)
+            .valueOrErrorMessage("There is no pool " + pool + " or user " + user + "with lock")
+        if userLockedHeigt > height then throw("You can't unlock sharetokens till " + userLockedHeigt.toString()) else
+        unlockUserLockCalc(i, pool, user) ++ [
+            ScriptTransfer(i.caller, this.getIntegerValue(kLockWavesFee), unit)
+        ]
+    })
+
+@Callable(i)
+func unlockUserLockDeprecated(pool: String, user: String) =
+    isActive().valueOrElse({
+    isSelfCall(i).valueOrElse({
+        if !getDeprecatedPool(pool) then throw("Pool must be deprecated") else
+        if this.getInteger(pool + "_" + user + kUserShareTokensLockedHeight).isDefined() then
+            unlockUserLockCalc(i, pool, user) ++ [
+                ScriptTransfer(moneyBoxAddress, this.getIntegerValue(kLockWavesFee), unit)
+            ]
+        else
+            []
+    })})
+
+@Callable(i)
+func withdrawShareTokens(pool:String, shareTokensWithdrawAmount:Int) =
+    isActive().valueOrElse({
+        calcWithdrawShareTokens(i, i.caller, pool, shareTokensWithdrawAmount)
+    })
+
+@Callable(i)
+func withdrawShareTokensFromPool(callerBytes: ByteVector, pool:String, shareTokensWithdrawAmount:Int) =
+    isActive().valueOrElse({
+    isPoolCall(i, pool).valueOrElse({
+        calcWithdrawShareTokens(i, Address(callerBytes), pool, shareTokensWithdrawAmount)
+    })})
+
+@Callable(i)
+func claim(pool:String) =
+    isActive().valueOrElse({
+        let r = calcClaim(i, pool, i.caller)
+        if r._2 == 0 then throw("You have 0 available SWOP") else
+        r
+    })
+
+@Callable(i)
+func claimInternal(pool:String, caller: ByteVector) =
+    isActive().valueOrElse({
+    isSelfCall(i).valueOrElse({
+        calcClaim(i, pool, Address(caller))
+    })})
+
+@Callable(i)
+func claimAndStake(pool:String) =
+    isActive().valueOrElse({
+        strict claimAmount = invoke(this, "claimInternal", [pool, i.caller.bytes], []).exactAs[Int]
+        if claimAmount == 0 then throw("You have 0 available SWOP") else
+        strict stakeToGov = invoke(govAddress, "lockSWOPFromFarming", [], [AttachedPayment(SWOP, claimAmount)])
+        []
+    })
+
+@Callable(i)
+func claimAll(pools:List[String]) =
+    isActive().valueOrElse({
+        func claimInv(claimTotal: Int, pool: String) = {
+            strict claimAmount = invoke(this, "claimInternal", [pool, i.caller.bytes], []).exactAs[Int]
+            claimTotal + claimAmount
+        }
+        let claimTotal = FOLD<60>(pools, 0, claimInv)
+        if claimTotal == 0 then throw("You have 0 available SWOP") else
+        [ScriptTransfer(i.caller, claimTotal, SWOP)]
+    })
+
+@Callable(i)
+func claimAllAndStake(pools:List[String]) =
+    isActive().valueOrElse({
+        func claimInv(claimTotal: Int, pool: String) = {
+            strict claimAmount = invoke(this, "claimInternal", [pool, i.caller.bytes], []).exactAs[Int]
+            claimTotal + claimAmount
+        }
+        let claimTotal = FOLD<60>(pools, 0, claimInv)
+        if claimTotal == 0 then throw("You have 0 available SWOP") else
+        strict stakeToGov = invoke(govAddress, "lockSWOPFromFarming", [], [AttachedPayment(SWOP, claimTotal)])
+        []
+    })
+
+@Callable(i)
+func updateUserBoostInterest(pool: String, user: String) =
+    isActive().valueOrElse({
+        if i.caller != votingAddress then throw("Only voiting can call this function") else
+        let (farmInterest, boostInterest, claimAmount, toTreasure, teamReward) = claimCalc(pool, user)
+        let availableFundsNew = userAvailableSWOP(pool, user) + claimAmount
+        [
+            IntegerEntry(pool + "_" + user + kFarmUserLastInterest, farmInterest),
+            IntegerEntry(pool + "_" + user + kBoostUserLastInterest, boostInterest),
+            IntegerEntry(pool + kFarmLastInterest, farmInterest),
+            IntegerEntry(pool + kBoostLastInterest, boostInterest),
+            IntegerEntry(pool + kLastInterestHeight, height),
+            IntegerEntry(pool + "_" + user + kAvailableSWOP, availableFundsNew),
+            Reissue(SWOP, toTreasure + teamReward, true),
+            ScriptTransfer(farmingTreasureAddr, toTreasure, SWOP),
+            ScriptTransfer(teamBoxAddress, teamReward, SWOP)
+        ]
+    })
 
 @Callable(i)
 func shutdown() =
-    if !isActive then
-        throw("DApp is already suspended. Cause: " + this.getString(keyCause).valueOrElse("the cause wasn't specified"))
-    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
-        throw("Only admin can call this function")
-    else
-        suspend("Paused by admin")
+    isAdminCall(i).valueOrElse({
+        if !active then
+            throw("DApp is already suspended. Cause: " + this.getString(kCause).valueOrElse("the cause wasn't specified"))
+        else
+            suspend("Paused by admin")
+    })
 @Callable(i)
 func activate() =
-    if isActive then
-        throw("DApp is already active")
-    else if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then
-        throw("Only admin can call this function")
-    else [
-        BooleanEntry(keyActive, true),
-        DeleteEntry(keyCause)
-    ]
+    isAdminCall(i).valueOrElse({
+        if active then throw("DApp is already active") else
+        [
+            BooleanEntry(kActive, true),
+            DeleteEntry(kCause)
+        ]
+    })
 
 @Verifier(tx)
 func verify() = match tx {

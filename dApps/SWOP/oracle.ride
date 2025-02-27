@@ -1,109 +1,174 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 8 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
-let kPoolsListName = "pools"
 let kPrefixPoolName = "pool_"
-let kPrefixPoolIndex = "index_"
+let kPrefixDeprecated = "deprecated_"
 
 let kPair = "pair_"
 let kAssetIdA = "A_asset_id"
 let kAssetIdB = "B_asset_id"
 let kLaunchpadDataTransactionStatus = "launchpad_data_transaction_status"
-
+let kActiveAllContracts = "active_all_contracts"
+let kStakingAssets = "staking_assets"
+let kStakingAssetParams = "_staking_asset_params" # with asset_id prefix string with stake_address,stake_func,unstake_func,stake_key_pattern
+#stake_key_pattern with {{ADDRESS}} placeholder
+let kAdminPubKey = "admin_pub_" # + adminId [1, 2, 3]
 let kAdminPubKey1 = "admin_pub_1"
 let kAdminPubKey2 = "admin_pub_2"
 let kAdminPubKey3 = "admin_pub_3"
-let kAdminInvokePubKey = "admin_invoke_pub"
+
 
 let kAchievementsWriters = "achievements_writers"
 
-let adminPubKey1 = base58'DXDY2itiEcYBtGkVLnkpHtDFyWQUkoLJz79uJ7ECbMrA'
-let adminPubKey2 = base58'E6Wa1SGoktYcjHjsKrvjMiqJY3SWmGKcD8Q5L8kxSPS7'
-let adminPubKey3 = base58'AZmWJtuy4GeVrMmJH4hfFBRApe1StvhJSk4jcbT6bArQ'
-let adminPubKeyInvoke = base58'Czn4yoAuUZCVCLJDRfskn8URfkwpknwBTZDbs1wFrY7h'
+let adminPubKey1 = this.getStringValue(kAdminPubKey1).fromBase58String()
+let adminPubKey2 = this.getStringValue(kAdminPubKey2).fromBase58String()
+let adminPubKey3 = this.getStringValue(kAdminPubKey3).fromBase58String()
 
-let pools = match this.getString(kPoolsListName) {
-    case string: String => string.split(",")
-    case nothing => []
-}
+let activeAllContracts = this.getBooleanValue(kActiveAllContracts)
 
 func isSelfCall(i: Invocation) = if i.caller == this then unit else throw("Only the Oracle itself can invoke this function")
 
-func getPoolNameIfValid(poolName: String) = {
-    let underscoreIndex = poolName.indexOf("_").valueOrElse(-1)
-    let underscoreLastIndex = poolName.lastIndexOf("_").valueOrElse(-1)
-    let hasSingleUnderscore =
-        underscoreIndex == underscoreLastIndex && underscoreIndex > 0 && underscoreIndex != (poolName.size() - 1)
-
-    if hasSingleUnderscore then
-        poolName
-    else
-        throw("Pool name must consist of two asset names separated by an underscore character")
+func getPoolType(poolAddress: Address) = {
+  let version = poolAddress.getString("version").valueOrErrorMessage("Pool is not initialized")
+  if(version == "1.0.0") then
+    "cpmm"
+  else if(version == "2.0.0") then
+    "flat"
+  else if(version == "3.0.0") then
+    "multycurve"
+  else
+    throw("Unknown version of pool")
 }
 
 func getAddressIfValid(address: String) = address.addressFromString().valueOrErrorMessage("Can't parse \"" + address + "\" as address").toString()
 
+func isAdminCall(i:Invocation) = if [adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) then unit
+  else throw("Only admin can call this function")
+
 @Callable(i)
-func setAdmin() = isSelfCall(i).valueOrElse({
-    [
-        StringEntry(kAdminPubKey1, adminPubKey1.toBase58String()),
-        StringEntry(kAdminPubKey2, adminPubKey2.toBase58String()),
-        StringEntry(kAdminPubKey3, adminPubKey3.toBase58String()),
-        StringEntry(kAdminInvokePubKey, adminPubKeyInvoke.toBase58String())
-    ]
+func setAdmin(adminId: Int, adminPubKey: String) = isSelfCall(i).valueOrElse({
+    if adminId < 0 && adminId > 3 then throw("Wrong admin id") else
+    [StringEntry(kAdminPubKey + adminId.toString(), adminPubKey)]
 })
 
 @Callable(i)
-func addPool(poolAddress: String, poolName: String) = isSelfCall(i).valueOrElse({
+func addPool(poolAddress: String, poolName: String) = isAdminCall(i).valueOrElse({
     let validatedAddress = poolAddress.getAddressIfValid()
     let keyName = kPrefixPoolName + validatedAddress
-    let keyIndex = kPrefixPoolIndex + validatedAddress
-    let assetIdA = poolAddress.addressFromString().value().getString(kAssetIdA).valueOrErrorMessage("Asset id A is incorrect")
-    let assetIdB = poolAddress.addressFromString().value().getString(kAssetIdB).valueOrErrorMessage("Asset id B is incorrect")
-
-
     let possiblyAlreadyAddedPool = this.getString(keyName)
 
     if possiblyAlreadyAddedPool.isDefined() then
         throw("Pool with address \"" + validatedAddress + "\" is already defined with name \"" + possiblyAlreadyAddedPool.value() + "\"")
-    else [
-        IntegerEntry(keyIndex, pools.size()),
-        StringEntry(keyName, poolName.getPoolNameIfValid()),
-        StringEntry(kPair + assetIdA + "_" + assetIdB, poolAddress),
-        StringEntry(kPoolsListName, (pools :+ validatedAddress).makeString(","))
-    ]
+    else
+      [StringEntry(keyName, poolName)] ++
+      if(getPoolType(poolAddress.addressFromString().value()) == "multycurve") then
+        []
+      else {
+        let assetIdA = poolAddress.addressFromString().value().getString(kAssetIdA).valueOrErrorMessage("Asset id A is incorrect")
+        let assetIdB = poolAddress.addressFromString().value().getString(kAssetIdB).valueOrErrorMessage("Asset id B is incorrect")
+        [StringEntry(kPair + assetIdA + "_" + assetIdB, poolAddress)]
+      }
 })
 
 @Callable(i)
-func renamePool(poolAddress: String, newPoolName: String) = isSelfCall(i).valueOrElse({
-    let validatedAddress = poolAddress.getAddressIfValid()
-    let keyName = kPrefixPoolName + validatedAddress
-    let possiblyAlreadyAddedPool = this.getString(keyName)
-
-    if possiblyAlreadyAddedPool.isDefined() then [
-        StringEntry(keyName, newPoolName.getPoolNameIfValid())
-    ] else
-        throw("Pool with address \"" + validatedAddress + "\" has not yet been added")
+func setDeprecated(poolAddress: String) = isAdminCall(i).valueOrElse({
+  let keyName = kPrefixPoolName + poolAddress
+  if !this.getString(keyName).isDefined() then 
+    throw("Couldn't found pool with address " + poolAddress)
+  else
+    [BooleanEntry(kPrefixDeprecated + poolAddress, true)]
 })
 
 @Callable(i)
-func launchpadDataTransactionStatus(status: Boolean) = isSelfCall(i).valueOrElse({
+func launchpadDataTransactionStatus(status: Boolean) = isAdminCall(i).valueOrElse({
    [BooleanEntry(kLaunchpadDataTransactionStatus, status)]
 })
 
 @Callable(i)
-func addAchievementsWriter(address: String) = isSelfCall(i).valueOrElse({
+func addAchievementsWriter(address: String) = isAdminCall(i).valueOrElse({
     let writers = this.getString(kAchievementsWriters).valueOrElse("")
     let data = if writers == "" then [] else writers.split(",")
     [StringEntry(kAchievementsWriters, (data :+ address).makeString(","))]
 })
 
 @Callable(i)
-func removeAchievementsWriter(address: String) = isSelfCall(i).valueOrElse({
+func removeAchievementsWriter(address: String) = isAdminCall(i).valueOrElse({
     let writers = this.getString(kAchievementsWriters).valueOrElse("").split(",")
     let index = writers.indexOf(address).valueOrErrorMessage("Can't find address in the list")
     [StringEntry(kAchievementsWriters, writers.removeByIndex(index).makeString(","))]
+})
+
+@Callable(i)
+func shutdownAllContracts() = isAdminCall(i).valueOrElse({
+    if !activeAllContracts then throw("All contracts already shutdown") else
+    [BooleanEntry(kActiveAllContracts, false)]
+})
+
+@Callable(i)
+func activateAllContracts() = isAdminCall(i).valueOrElse({
+    if activeAllContracts then throw("All contracts already active") else
+    [BooleanEntry(kActiveAllContracts, true)]
+})
+
+@Callable(i)
+func addStakingAsset(
+  assetId: String, 
+  stakeContract: String, 
+  stakeFunc: String, 
+  unstakeFunc: String, 
+  stakingKeyPattern: String, 
+  claimFunc: String,
+  balanceFunc: String, 
+  balanceFuncParams: String, 
+  stakeAllDapps: List[String]
+  ) = isAdminCall(i).valueOrElse({
+    strict inv = this.invoke("saveStakingParams", [assetId, stakeContract, stakeFunc, unstakeFunc, stakingKeyPattern, claimFunc, balanceFunc, balanceFuncParams], nil)
+    strict inv1 = this.invoke("stakeUnstakeAll", [assetId, stakeAllDapps, true], nil)
+  []
+})
+
+@Callable(i)
+func removeStakingAsset(assetId: String, unstakeAllDapps: List[String]) = isAdminCall(i).valueOrElse({
+  let stakeAssets = this.getStringValue(kStakingAssets).split_4C(",")
+  let index = stakeAssets.indexOf(assetId).valueOrErrorMessage("Can't find asset (" + assetId + ") in staking assets")
+  strict inv = this.invoke("stakeUnstakeAll", [assetId, unstakeAllDapps, false], nil)
+  [
+    StringEntry(kStakingAssets, (stakeAssets.removeByIndex(index)).makeString_2C(",")),
+    DeleteEntry(assetId + kStakingAssetParams)
+  ]
+})
+
+@Callable(i)
+func stakeUnstakeAll(assetId: String, stakeAllDApps: List[String], stake: Boolean) = {
+  if ![adminPubKey1, adminPubKey2, adminPubKey3].containsElement(i.callerPublicKey) && i.caller != this then throw("Only admin can call this function or selfcall") else
+  if size(stakeAllDApps) > 10 then throw("You cant call stakeAll for more then 10 contracts") else
+  func stakeAsset(invoked: Boolean, dApp: String) = {
+    let fname = if stake then "stakeAll" else "unstakeAll"
+    strict inv = dApp.addressFromStringValue().invoke("callFunction", [fname, [assetId]], nil)
+    true
+  }
+  strict invoked = FOLD<10>(stakeAllDApps, false, stakeAsset)
+  []
+}
+
+@Callable(i)
+func saveStakingParams(
+  assetId: String, 
+  stakeContract: String, 
+  stakeFunc: String, 
+  unstakeFunc: String, 
+  stakingKeyPattern: String, 
+  claimFunc: String,
+  balanceFunc: String,
+  balanceFuncParams: String
+  ) = isSelfCall(i).valueOrElse({
+    let stakeAssets = this.getStringValue(kStakingAssets).split_4C(",")
+    let stakingParams = makeString([stakeContract, stakeFunc, unstakeFunc, stakingKeyPattern, claimFunc, balanceFunc, balanceFuncParams], ",")
+    [
+      StringEntry(kStakingAssets, (stakeAssets :+ assetId).makeString_2C(",")),
+      StringEntry(assetId + kStakingAssetParams, stakingParams)
+    ]
 })
 
 @Verifier(tx)
@@ -111,26 +176,5 @@ func verify() = {
     let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
     let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
     let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
-    let signedByAdmin = adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
-
-    let signedByAdminToCallAddPool = adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 1
-
-    match tx {
-        case inv: InvokeScriptTransaction => {
-            let isSelfInvokeRenamePool = inv.dApp == this && ["renamePool"].containsElement(inv.function)
-            let isSelfInvokeSetAdmin = inv.dApp == this && ["setAdmin"].containsElement(inv.function)
-            let isSelfInvokeAddPool = inv.dApp == this && ["addPool"].containsElement(inv.function)
-            let isSelfInvokeLaunchpadDataTxStatus = inv.dApp == this && ["launchpadDataTransactionStatus"].containsElement(inv.function)
-            let isSelfInvokeAddAchievementsWriter = inv.dApp == this && ["addAchievementsWriter"].containsElement(inv.function)
-            let isSelfInvokeRemoveAchievementsWriter = inv.dApp == this && ["removeAchievementsWriter"].containsElement(inv.function)
-
-            (signedByAdmin && inv.payments.size() == 0 && isSelfInvokeRenamePool) ||
-            (signedByAdminToCallAddPool && inv.payments.size() == 0 && isSelfInvokeAddPool) ||
-            (signedByAdmin && inv.payments.size() == 0 && isSelfInvokeSetAdmin) ||
-            (signedByAdmin && inv.payments.size() == 0 && isSelfInvokeLaunchpadDataTxStatus) ||
-            (signedByAdmin && inv.payments.size() == 0 && isSelfInvokeAddAchievementsWriter) ||
-            (signedByAdmin && inv.payments.size() == 0 && isSelfInvokeRemoveAchievementsWriter)
-        }
-        case _: Transaction|Order => signedByAdmin
-    }
+    adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
 }

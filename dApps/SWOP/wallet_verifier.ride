@@ -1,13 +1,9 @@
-{-# STDLIB_VERSION 5 #-}
+{-# STDLIB_VERSION 8 #-}
 {-# CONTENT_TYPE DAPP #-}
 {-# SCRIPT_TYPE ACCOUNT #-}
 
 let oracle = Address(base58'3PEbqViERCoKnmcSULh6n2aiMvUdSQdCsom')
 
-func getBase58FromOracle(key: String) = match oracle.getString(key) {
-    case string: String => string.fromBase58String()
-    case nothing => throw(key + "is empty")
-}
 let kAdminPubKey1 = "admin_pub_1"
 let kAdminPubKey2 = "admin_pub_2"
 let kAdminPubKey3 = "admin_pub_3"
@@ -15,7 +11,16 @@ let kAdminInvokePubKey = "admin_invoke_pub"
 let kGovAddress = "governance_address"
 let kFarmAddress = "farming_address"
 let kSurveysAddress = "surveys_address"
+let kRoutingAddr = "routing_address"
+let kSWOPid = "SWOP_id"
+let kPrefixPoolName = "pool_"
+let kLastBurned = "last_airdrop_burn"
+let burnAirDropPercent = 20
 
+func getBase58FromOracle(key: String) = match oracle.getString(key) {
+    case string: String => string.fromBase58String()
+    case nothing => throw(key + "is empty")
+}
 let adminPubKey1 = getBase58FromOracle(kAdminPubKey1)
 let adminPubKey2 = getBase58FromOracle(kAdminPubKey2)
 let adminPubKey3 = getBase58FromOracle(kAdminPubKey3)
@@ -23,26 +28,113 @@ let adminInvoke = getBase58FromOracle(kAdminInvokePubKey)
 let governanceAddress = Address(getBase58FromOracle(kGovAddress))
 let farmingAddress = Address(getBase58FromOracle(kFarmAddress))
 let surveysAddress = Address(getBase58FromOracle(kSurveysAddress))
+let routingAddress = Address(getBase58FromOracle(kRoutingAddr))
+let swopId = farmingAddress.getStringValue(kSWOPid).fromBase58String()
 
-let keyPrefixPoolName = "pool_"
+func isSelfCall(i: Invocation) = if i.caller == this then unit
+        else throw("Only contract itself can call this function")
+
+func listToInt(a: List[Int], item: String) = {
+  a :+ item.parseIntValue()
+}
+
+func assetIdFromStr(assetId: String) = if assetId == "WAVES" then unit else assetId.fromBase58String()
+
+func accountBalance(assetId: ByteVector|Unit) = match assetId {
+    case id: ByteVector => this.assetBalance(id)
+    case waves: Unit => this.wavesBalance().available
+}
+
+func directSwopfiCPMM(rArgs: List[String]) = {
+  let dApp = rArgs[1].addressFromStringValue()
+  let pmt = {
+    let pmtP = rArgs[2].split("|")
+    [AttachedPayment(pmtP[0].fromBase58String(), pmtP[1].parseIntValue())]
+  }
+  let minToRecive = rArgs[3]
+  dApp.invoke("callFunction", ["exchange", [minToRecive]], pmt)
+}
+
+func directRoutingSwopfi(rArgs: List[String]) = {
+  let dApp = rArgs[1].addressFromStringValue()
+  let pmt = {
+    let pmtP = rArgs[2].split("|")
+    [AttachedPayment(pmtP[0].fromBase58String(), pmtP[1].parseIntValue())]
+  }
+  let args = {
+    let eArgs = rArgs[3].split("|") 
+    let exchangers = eArgs[0].split(",")
+    let exchangersType = eArgs[1].split(",")
+    let args1 = FOLD<3>(eArgs[2].split(","), [], listToInt)
+    let args2 = FOLD<3>(eArgs[3].split(","), [], listToInt)
+    let routingAssetsKeys = eArgs[4].split(",")
+    let minToRecive = eArgs[5].parseIntValue()
+    [exchangers, exchangersType, args1, args2, routingAssetsKeys, minToRecive]
+  }
+  dApp.invoke("routingTrade", args, pmt)
+}
+
+func buySwopForAirdrop(pool: String, tokenToExchange: String, amountToLeftForTx: Int) = {
+  let tokenId = tokenToExchange.assetIdFromStr()
+  strict tokenBalance = tokenId.accountBalance()
+  let amountToExchange = tokenBalance - amountToLeftForTx
+  if amountToExchange <= 0 then throw("Nothing to exchange for airdrop") else
+  let poolAddr = pool.addressFromStringValue()
+  poolAddr.invoke("callFunction", ["exchange", ["1"]], [AttachedPayment(tokenId, amountToExchange)])
+}
+
+@Callable(i)
+func exchangeTokens(routes: List[String], airdrop: Boolean, pool: String, tokenToExchange: String, amountToLeftForTx: Int) = 
+isSelfCall(i).valueOrElse({
+  func exchangeToken(r:List[Any], route: String) = {
+    let rArgs = route.split("__")
+    if rArgs[0] == "directSwopfiCPMM" then 
+      strict inv = directSwopfiCPMM(rArgs)
+      r :+ inv
+    else if rArgs[0] == "routingSwopfi" then 
+      strict inv = directRoutingSwopfi(rArgs)
+      r :+ inv
+    else throw("Unknown route type") 
+  }
+  strict res = FOLD<10>(routes, [], exchangeToken)
+  if !airdrop then [] else
+  strict inv = buySwopForAirdrop(pool, tokenToExchange, amountToLeftForTx)
+  strict swopBalance = swopId.accountBalance()
+  let burnAmount = swopBalance.fraction(burnAirDropPercent, 100)
+  strict aInv = governanceAddress.invoke("airDrop", [], [AttachedPayment(swopId, swopBalance - burnAmount)])
+  [ 
+    IntegerEntry(kLastBurned, burnAmount),
+    Burn(swopId, burnAmount)
+  ]
+})
 
 @Verifier(tx)
-func verify() = match tx {
-  case inv: InvokeScriptTransaction => {
-    let isExchangeCall = oracle.getString(keyPrefixPoolName + inv.dApp.addressFromRecipient().toString()).isDefined() && inv.function == "exchange"
-    let isAirdropCall = inv.dApp == governanceAddress && inv.function == "airDrop"
-    let isUpdateWeightsCall = inv.dApp == governanceAddress && inv.function == "updateWeights"
-    let isUpdatePoolInterest = inv.dApp == farmingAddress && inv.function == "updatePoolInterest"
-    let isTakenIntoAccount = oracle.getString(keyPrefixPoolName + inv.dApp.addressFromRecipient().toString()).isDefined() && inv.function == "takeIntoAccountExtraFunds"
-    let isWriteTotal = inv.dApp == surveysAddress && inv.function == "writeTotals"
-    let signedByAdmin = sigVerify(tx.bodyBytes, tx.proofs[0], adminInvoke)
-
-    (((isExchangeCall || isAirdropCall) && inv.payments.size() == 1) || ((isUpdateWeightsCall || isUpdatePoolInterest || isTakenIntoAccount || isWriteTotal) && inv.payments.size() == 0)) && signedByAdmin
-  }
-  case _ => {
-    let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
-    let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
-    let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
-    adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
+func verify() = {
+  match (tx) {
+    case inv: InvokeScriptTransaction => {
+      let isRightFee = inv.fee == 900000 && inv.feeAssetId == unit
+      let isRoutingCall = inv.dApp == routingAddress && inv.function == "routingTrade"
+      let isExchangeCallCPMM = oracle.getString(kPrefixPoolName + inv.dApp.addressFromRecipient().toString()).isDefined() && inv.function == "callFunction" && inv.args[0] == "exchange"
+      let isExchangeCall = oracle.getString(kPrefixPoolName + inv.dApp.addressFromRecipient().toString()).isDefined() && inv.function == "exchange"
+      let isAirdropCall = inv.function == "exchangeTokens"
+      let isUpdateWeightsCall = inv.dApp == governanceAddress && inv.function == "updateWeights"
+      let isTakenIntoAccount = oracle.getString(kPrefixPoolName + inv.dApp.addressFromRecipient().toString()).isDefined() && inv.function == "takeIntoAccountExtraFunds"
+      let isWriteTotal = inv.dApp == surveysAddress && inv.function == "writeTotals"
+      let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
+      let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey2) then 1 else 0
+      let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey3) then 1 else 0
+      let adminPubKeyInvokeSigned = if sigVerify(tx.bodyBytes, tx.proofs[0], adminInvoke) then 1 else 0
+      let signedByOneAdmin = adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed + adminPubKeyInvokeSigned >= 1
+      (
+        ((isExchangeCall || isExchangeCallCPMM || isRoutingCall) && inv.payments.size() == 1) ||
+        ((isUpdateWeightsCall || isTakenIntoAccount || isWriteTotal || isAirdropCall) && inv.payments.size() == 0)
+      ) && signedByOneAdmin && isRightFee
+    }
+    case _ =>  {
+      let adminPubKey1Signed = if sigVerify(tx.bodyBytes, tx.proofs[0], adminPubKey1) then 1 else 0
+      let adminPubKey2Signed = if sigVerify(tx.bodyBytes, tx.proofs[1], adminPubKey2) then 1 else 0
+      let adminPubKey3Signed = if sigVerify(tx.bodyBytes, tx.proofs[2], adminPubKey3) then 1 else 0
+      adminPubKey1Signed + adminPubKey2Signed + adminPubKey3Signed >= 2
+    }
   }
 }
